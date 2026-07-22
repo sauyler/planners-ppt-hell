@@ -1,0 +1,5 @@
+interface:
+  display_name: "Planner's PPT Hell"
+  short_description: "确定性流水线、模板审阅与SVG验证的可编辑PPT流程"
+  brand_color: "#D46A00"
+  default_prompt: "Use $planners-ppt-hell to turn this proposal into an editable PPT. Ask me for a new explicit template choice before any extraction, follow only the pipeline's current action, use an announced one-shot subagent for each SVG batch when available, stop at every human review, and export only after all gates pass."
