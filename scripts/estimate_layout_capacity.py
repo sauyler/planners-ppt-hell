@@ -46,13 +46,14 @@ def block_text(block):
     if not isinstance(block, dict):
         return str(block)
     btype = block.get("type", "")
-    if btype in {"bullet_list", "numbered_list"}:
+    if btype in {"bullet_list", "numbered_list", "list"}:
         return "\n".join(str(x) for x in block.get("items", []))
     if btype == "kpi_set":
         items = block.get("items", [])
         if isinstance(items, list):
             return "\n".join(str(x) for x in items)
-    return str(block.get("text", ""))
+    value = block.get("text", block.get("content", ""))
+    return "\n".join(flatten_copy(value))
 
 
 def table_text(tables):
@@ -129,6 +130,45 @@ def kept_segments(layout_page, content_page):
     return kept
 
 
+def normalized_label(value):
+    return "".join(ch for ch in str(value or "").lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
+
+
+SEMANTIC_ALIASES = {
+    "title": {"title", "actiontitle", "header", "heading", "标题", "主标题"},
+    "lead": {"subtitle", "coremessage", "lead", "intro", "导语", "副标题", "核心观点"},
+    "body": {"body", "bodyblocks", "items", "list", "points", "keypoints", "evidence", "正文", "要点", "证据"},
+    "footer": {"footer", "footertakeaway", "source", "caption", "imagecaption", "页脚", "来源", "图注", "结论"},
+}
+
+
+def semantic_group(label):
+    key = normalized_label(label)
+    for group, aliases in SEMANTIC_ALIASES.items():
+        if key in aliases or any(alias and (alias in key or key in alias) for alias in aliases):
+            return group
+    return ""
+
+
+def semantic_copy_items(layout_page, content_page):
+    """Return final copy as named semantic items, preserving layout-authored keys."""
+    handling = layout_page.get("copy_handling", {}) if isinstance(layout_page, dict) else {}
+    final_copy = handling.get("final_on_slide", {}) if isinstance(handling, dict) else {}
+    items = []
+    if isinstance(final_copy, dict):
+        for key, value in final_copy.items():
+            text = "\n".join(flatten_copy(value)).strip()
+            if text:
+                items.append((str(key), text))
+    if items:
+        if not any(semantic_group(key) == "title" for key, _ in items):
+            title = str(content_page.get("action_title", "")).strip()
+            if title:
+                items.insert(0, ("action_title", title))
+        return items
+    return kept_segments(layout_page, content_page)
+
+
 def font_size_for_zone(zone, label, page_density):
     z = (zone or "").lower()
     l = (label or "").lower()
@@ -168,41 +208,43 @@ def classify(utilization, estimated_chars, zone):
 
 def assign_text_to_regions(layout_page, content_page):
     regions = layout_page.get("wireframe", []) or []
-    segments = kept_segments(layout_page, content_page)
     if not regions:
         return []
+    items = semantic_copy_items(layout_page, content_page)
+    used = set()
+    assigned = [(region, "") for region in regions]
 
-    title = dict(segments).get("action_title", "")
-    core = dict(segments).get("core_message", "")
-    body = "\n".join(text for key, text in segments if key not in {"action_title", "core_message"})
+    # First pass: exact wireframe.label <-> final_on_slide key matching.
+    for region_index, (region, _) in enumerate(assigned):
+        label_key = normalized_label(region.get("label", ""))
+        match = next((i for i, (key, _) in enumerate(items)
+                      if i not in used and normalized_label(key) == label_key), None)
+        if match is not None:
+            assigned[region_index] = (region, items[match][1])
+            used.add(match)
 
-    assigned = []
-    main_regions = []
-    for region in regions:
-        zone = str(region.get("zone", ""))
-        label = str(region.get("label", ""))
-        zl = zone.lower()
-        ll = label.lower()
-        if "header" in zl or "title" in ll or "标题" in label:
-            text = title
-        elif "footer" in zl or "页脚" in label or "source" in ll:
-            text = ""
-        else:
-            main_regions.append(region)
-            text = ""
-        assigned.append((region, text))
+    # Second pass: conservative semantic aliases (title, lead, body, footer).
+    for region_index, (region, text) in enumerate(assigned):
+        if text:
+            continue
+        region_group = semantic_group(region.get("label", "")) or semantic_group(region.get("zone", ""))
+        if not region_group:
+            continue
+        match = next((i for i, (key, _) in enumerate(items)
+                      if i not in used and semantic_group(key) == region_group), None)
+        if match is not None:
+            assigned[region_index] = (region, items[match][1])
+            used.add(match)
 
-    main_text = "\n".join(x for x in [core, body] if x.strip())
-    if main_regions and main_text.strip():
-        per_region = split_text_load(main_text, len(main_regions))
-        next_main = 0
-        rebuilt = []
-        for region, text in assigned:
-            if region in main_regions:
-                text = per_region[next_main]
-                next_main += 1
-            rebuilt.append((region, text))
-        assigned = rebuilt
+    # Only unmatched copy is distributed, and only into unmatched content regions.
+    remainder = "\n".join(text for i, (_, text) in enumerate(items) if i not in used and text.strip())
+    eligible = [i for i, (region, text) in enumerate(assigned)
+                if not text and str(region.get("zone", "")).lower() != "background"
+                and semantic_group(region.get("label", "")) != "footer"]
+    if remainder and eligible:
+        chunks = split_text_load(remainder, len(eligible))
+        for assigned_index, chunk in zip(eligible, chunks):
+            assigned[assigned_index] = (assigned[assigned_index][0], chunk)
     return assigned
 
 
@@ -213,8 +255,11 @@ def split_text_load(text, parts):
     if not lines:
         return [""] * parts
     buckets = [""] * parts
-    for idx, line in enumerate(lines):
-        bucket = idx % parts
+    target = max(1.0, sum(visual_chars(line) for line in lines) / parts)
+    bucket = 0
+    for line in lines:
+        if bucket < parts - 1 and buckets[bucket] and visual_chars(buckets[bucket]) >= target:
+            bucket += 1
         buckets[bucket] = (buckets[bucket] + "\n" + line).strip()
     return buckets
 

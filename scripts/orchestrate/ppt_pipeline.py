@@ -16,8 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "template"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from layout_canvas import registry_canvases_ready  # noqa: E402
 from template_visual_gate import review_complete as template_canvas_review_complete  # noqa: E402
+from review_policy import layout_reroute_pages  # noqa: E402
 
 INTERNAL = "_internal"
 HERE = Path(__file__).resolve().parent
@@ -37,7 +39,8 @@ CONTENT_STAGE_PROMPT = (
     "按 task.contract 写 task.output_files；不得选择模板 layout、设计 wireframe 或生成 SVG。完成后运行 finalize。"
 )
 LAYOUT_STAGE_PROMPT = (
-    "执行 Layout 阶段。只读取 task.input_files，决定每页内容结构、最终上屏文案、wireframe 与 canvas。"
+    "执行 Layout 阶段。Controller 已生成完整页集合的确定性 layout_plan.json scaffold；逐页在原文件上完成内容结构、最终上屏文案、wireframe 与 canvas 判断。"
+    "不得另写临时 Python 生成器、不得手写替换整份 JSON；完成一页即把该页 scaffold_status 设为 completed，全部完成后设置顶层 completed。"
     "专用 canvas 仅在精确匹配时选择，否则必须选择 content_base。按 task.contract 写输出，不得生成 SVG 或写 forbidden_writes。"
 )
 SVG_STAGE_PROMPT = (
@@ -110,6 +113,9 @@ def review_artifact_current(root, data, route):
     html_path = root / html_rel
     if not html_path.is_file() or provenance.get("html_sha256") != sha256(html_path):
         return False
+    if route == "/layout-feedback":
+        plan = root / INTERNAL / "01_layout_plan" / "layout_plan.json"
+        return plan.is_file() and provenance.get("layout_plan_sha256") == sha256(plan)
     if route in {"/review-feedback", "/template-feedback"}:
         approved_hashes = provenance.get("png_sha256", {})
         if route == "/template-feedback":
@@ -241,14 +247,28 @@ def latest_stage_event(root, step, batch=""):
     return latest
 
 
-def stage_completed(root, step, batch="", feedback_sha256=""):
-    event = latest_stage_event(root, step, batch)
-    if not event or event.get("issues") or not event.get("output_sha256"):
-        return False
-    if feedback_sha256 and event.get("feedback_sha256") != feedback_sha256:
-        return False
-    task_name = f"svg_{batch}_task.json" if step == "svg" else f"{step}_task.json"
-    task = load_json(root / INTERNAL / "00_project" / "tasks" / task_name, {})
+def latest_svg_evidence_event(root, batch=""):
+    """Return the latest event that can accept or reject SVG visual evidence."""
+    path = root / INTERNAL / "00_project" / "flow_events.jsonl"
+    latest = {"event_type": ""}
+    if not path.is_file():
+        return latest
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        details = event.get("details", {}) if isinstance(event, dict) else {}
+        if (
+            event.get("type") in {"stage_completed", "stage_failed", "stage_evidence_sealed", "stage_evidence_failed"}
+            and details.get("step") == "svg"
+            and details.get("batch", "") == batch
+        ):
+            latest = {**details, "event_type": event.get("type", "")}
+    return latest
+
+
+def task_is_current(task, event):
     if not task or task.get("task_sha256") != event.get("task_sha256"):
         return False
     payload = dict(task)
@@ -256,7 +276,80 @@ def stage_completed(root, step, batch="", feedback_sha256=""):
     calculated_task_hash = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    if declared_task_hash != calculated_task_hash:
+    return declared_task_hash == calculated_task_hash
+
+
+def split_svg_outputs(task):
+    outputs = task.get("output_files", []) if isinstance(task, dict) else []
+    evidence = [rel for rel in outputs if rel.endswith("_self_review.json")]
+    artifacts = [rel for rel in outputs if rel not in evidence]
+    return artifacts, evidence
+
+
+def hashes_current(root, files, recorded):
+    return bool(files) and set(recorded) == set(files) and all(
+        (root / rel).is_file() and sha256(root / rel) == recorded[rel] for rel in files
+    )
+
+
+def svg_artifacts_completed(root, batch="", feedback_sha256=""):
+    event = latest_stage_event(root, "svg", batch)
+    if not event or event.get("issues") or not event.get("output_sha256"):
+        return False
+    if feedback_sha256 and event.get("feedback_sha256") != feedback_sha256:
+        return False
+    task = load_json(root / INTERNAL / "00_project" / "tasks" / f"svg_{batch}_task.json", {})
+    if not task_is_current(task, event):
+        return False
+    layout_plan = root / INTERNAL / "01_layout_plan" / "layout_plan.json"
+    if (not layout_plan.is_file()
+            or task.get("constraints", {}).get("layout_plan_sha256") != sha256(layout_plan)):
+        return False
+    artifact_files, _ = split_svg_outputs(task)
+    recorded = event.get("artifact_sha256") or {
+        rel: event.get("output_sha256", {}).get(rel)
+        for rel in artifact_files if event.get("output_sha256", {}).get(rel)
+    }
+    if not hashes_current(root, artifact_files, recorded):
+        return False
+    preview_pages = root / INTERNAL / "03_png_preview" / "pages"
+    return (
+        all((preview_pages / f"{key}.png").is_file() for key in task.get("pages", []))
+        and (root / INTERNAL / "03_png_preview" / "full_deck_contact_sheet.png").is_file()
+    )
+
+
+def svg_evidence_sealed(root, batch="", feedback_sha256=""):
+    event = latest_svg_evidence_event(root, batch)
+    if event.get("event_type") not in {"stage_completed", "stage_evidence_sealed"} or event.get("issues"):
+        return False
+    if feedback_sha256 and event.get("feedback_sha256") != feedback_sha256:
+        return False
+    task = load_json(root / INTERNAL / "00_project" / "tasks" / f"svg_{batch}_task.json", {})
+    if not task_is_current(task, event):
+        return False
+    _, evidence_files = split_svg_outputs(task)
+    recorded = event.get("evidence_sha256") or {
+        rel: event.get("output_sha256", {}).get(rel)
+        for rel in evidence_files if event.get("output_sha256", {}).get(rel)
+    }
+    return hashes_current(root, evidence_files, recorded)
+
+
+def stage_completed(root, step, batch="", feedback_sha256=""):
+    if step == "svg":
+        return (
+            svg_artifacts_completed(root, batch, feedback_sha256)
+            and svg_evidence_sealed(root, batch, feedback_sha256)
+        )
+    event = latest_stage_event(root, step, batch)
+    if not event or event.get("issues") or not event.get("output_sha256"):
+        return False
+    if feedback_sha256 and event.get("feedback_sha256") != feedback_sha256:
+        return False
+    task_name = f"svg_{batch}_task.json" if step == "svg" else f"{step}_task.json"
+    task = load_json(root / INTERNAL / "00_project" / "tasks" / task_name, {})
+    if not task_is_current(task, event):
         return False
     expected_outputs = task.get("output_files", [])
     recorded = event.get("output_sha256", {})
@@ -265,7 +358,7 @@ def stage_completed(root, step, batch="", feedback_sha256=""):
     return all((root / rel).is_file() and sha256(root / rel) == recorded[rel] for rel in expected_outputs)
 
 
-def stage_action(root, step, batch="", revision=False):
+def stage_action(root, step, batch="", revision=False, feedback_source="layout"):
     task_name = f"svg_{batch}_task.json" if step == "svg" else f"{step}_task.json"
     prompts = {
         "template": TEMPLATE_STAGE_PROMPT,
@@ -280,10 +373,13 @@ def stage_action(root, step, batch="", revision=False):
         finalize_args += ["--batch", batch]
     if revision:
         make_args.append("--revision")
+        if step == "layout" and feedback_source != "layout":
+            make_args += ["--feedback-source", feedback_source]
     stage = {
         "step": step,
         "batch_id": batch,
         "mode": "revision" if revision else "initial",
+        "feedback_source": feedback_source if revision else "",
         "prepare": action(Path(__file__).resolve(), root, *make_args),
         "task": f"_internal/00_project/tasks/{task_name}",
         "instruction": prompts[step],
@@ -305,7 +401,8 @@ def stage_action(root, step, batch="", revision=False):
             f"使用当前 Planner PPT Skill 执行唯一 SVG batch {batch}。"
             f"准备后只读取 {stage['task']}的 input_files，只写 output_files。"
             "必须原样执行 task 内的 canvas_start_argv_by_page、validator_argv 和 visual_render_argv；"
-            "不得手抄、缩写或重组路径。执行视觉检查和最多一轮集中修复，然后运行 task 指定的 finalize。"
+            "不得手抄、缩写或重组路径。首次 Validator 后不得立即修图；必须先完成首次视觉渲染与检查，"
+            "把两类发现合成一个清单后最多集中修复一次，再同时复跑 Validator 与视觉检查，然后运行 finalize。"
             "不跨 batch 写入，不修改批准文案、wireframe、canvas 选择或 locked layer。"
             "每个非 background wireframe 区域都要在对应 SVG 元素或分组上写入相同的 data-wireframe-label。"
         )
@@ -536,7 +633,8 @@ def derive(root):
     if not content_ready:
         return {**common, "state": "CONTENT", "next_action": "Execute the Content stage for the full deck.",
                 "do": {"stage": stage_action(root, "content")},
-                "required_inputs": ["source Markdown"], "allowed_writers": ["primary Agent → page_content.json"]}
+                "required_inputs": ["normalized source Markdown", "source_assets.json and declared images"],
+                "allowed_writers": ["primary Agent → page_content.json"]}
 
     layout = load_json(internal / "01_layout_plan" / "layout_plan.json", {})
     layout_pages = layout.get("pages", []) if isinstance(layout, dict) else []
@@ -588,6 +686,7 @@ def derive(root):
         if not task_path.exists():
             missing_tasks.append(bid)
     incomplete = []
+    evidence_unsealed = []
     visual_blocked = []
     for bid in batches:
         batch = data["batch_config"][bid]
@@ -597,17 +696,29 @@ def derive(root):
         visual_ok = visual_self_review_complete(self_review, batch["pages"])
         if not visual_ok:
             visual_blocked.append(bid)
-        if not all(path.exists() for path in svgs) or not validation or report_has_hard_errors(validation) or not stage_completed(root, "svg", bid) or not visual_ok:
+        artifact_ok = svg_artifacts_completed(root, bid)
+        evidence_ok = svg_evidence_sealed(root, bid)
+        if artifact_ok and visual_ok and not evidence_ok:
+            evidence_unsealed.append(bid)
+        if not all(path.exists() for path in svgs) or not validation or report_has_hard_errors(validation) or not artifact_ok or not visual_ok:
             incomplete.append(bid)
     if missing_tasks or incomplete:
         active = [bid for bid in batches if bid in set(missing_tasks + incomplete)]
         current = active[0]
-        next_action = "Prepare the next frozen SVG task, announce the executor, then use a one-shot subagent when available and close it with deterministic finalize-stage."
+        wave = [stage_action(root, "svg", bid) for bid in active]
+        next_action = "Prepare every ready frozen SVG task, then run disjoint batches in waves of three (bounded by host concurrency)."
         return {**common, "state": "SVG_BATCH_BUILD", "next_action": next_action,
                 "active_batches": active, "current_batch": current,
                 "visual_blocked_batches": visual_blocked,
-                "do": {"stage": stage_action(root, "svg", current),
-                       "optional_one_shot_parallel_batches": active if len(active) > 1 else [],
+                "do": {"stage": wave[0],
+                       "parallel_wave": {
+                           "required_default": len(active) > 1,
+                           "batches": active,
+                           "stages": wave,
+                           "max_parallel_batches": 3,
+                           "concurrency": "min(3, host_available_slots, ready_batch_count)",
+                           "join": "wait for the whole wave, then finalize/check every batch before deriving next state",
+                       },
                        "visual_recovery": {
                            "first": "retry task visual_render_argv with escalated sandbox permission",
                            "if_escalation_unavailable": ["host renders into visual_preview_dir", "user supplies batch PNG/contact sheet for the frozen task"],
@@ -619,13 +730,41 @@ def derive(root):
                 "allowed_writers": ["one-shot SVG subagent, or announced primary-Agent fallback → current batch SVGs and batch validation/self-review"],
                 "forbidden_writes": ["cross-batch SVG writes", "approval files", "manifest"]}
 
+    if evidence_unsealed:
+        return {
+            **common,
+            "state": "SVG_EVIDENCE_SEAL",
+            "next_action": "Seal all ready visual-evidence versions in one controller action; stable SVG artifacts and renders are reused.",
+            "active_batches": evidence_unsealed,
+            "do": {
+                "actions": [action(Path(__file__).resolve(), root, "seal-ready-batches", "--batches", ",".join(evidence_unsealed))],
+                "completion": "every ready batch has a current stage_evidence_sealed event without re-rendering",
+            },
+            "required_inputs": ["stable SVG artifact hashes", "completed combined validator + visual evidence"],
+            "allowed_writers": ["controller → flow_events.jsonl evidence seal events"],
+            "forbidden_writes": ["SVG artifacts", "PNG previews", "validation reports"],
+        }
+
     feedback_path = internal / "05_review" / "feedback.json"
     feedback = load_json(feedback_path, {})
     review_html = root / "02_visual_review.html"
     all_approved = feedback.get("all_approved") is True and review_artifact_current(root, feedback, "/review-feedback")
     approved_pages = all(feedback.get("pages", {}).get(p.get("page_key"), {}).get("approved") for p in data.get("pages", []))
     hashes_current = review_artifact_current(root, feedback, "/review-feedback")
-    if provenance_ok(feedback, "/review-feedback") and not (all_approved and approved_pages):
+    if hashes_current and not (all_approved and approved_pages):
+        layout_pages = layout_reroute_pages(feedback)
+        if layout_pages:
+            feedback_hash = sha256(feedback_path)
+            if not stage_completed(root, "layout", feedback_sha256=feedback_hash):
+                return {
+                    **common,
+                    "state": "LAYOUT_REVISION_FROM_VISUAL",
+                    "next_action": "Visual feedback changes page structure; route it back to Layout before any SVG-local repair.",
+                    "affected_pages": layout_pages,
+                    "do": {"stage": stage_action(root, "layout", revision=True, feedback_source="visual")},
+                    "required_inputs": ["current visual feedback", "approved layout plan"],
+                    "allowed_writers": ["primary Agent → layout_plan.json"],
+                }
         rejected = {key for key, value in feedback.get("pages", {}).items()
                     if isinstance(value, dict) and not value.get("approved")}
         affected = [bid for bid in batches if rejected.intersection(data["batch_config"][bid]["pages"])]
@@ -633,10 +772,18 @@ def derive(root):
         pending = [bid for bid in affected if not stage_completed(root, "svg", bid, feedback_hash)]
         if pending:
             current = pending[0]
+            wave = [stage_action(root, "svg", bid, revision=True) for bid in pending]
             return {**common, "state": "SVG_BATCH_BUILD", "next_action": "Revise the next affected SVG batch from frozen full-deck feedback.",
                     "active_batches": pending, "current_batch": current,
-                    "do": {"stage": stage_action(root, "svg", current, revision=True),
-                           "optional_one_shot_parallel_batches": pending if len(pending) > 1 else []},
+                    "do": {"stage": wave[0],
+                           "parallel_wave": {
+                               "required_default": len(pending) > 1,
+                               "batches": pending,
+                               "stages": wave,
+                               "max_parallel_batches": 3,
+                               "concurrency": "min(3, host_available_slots, ready_batch_count)",
+                               "join": "wait for the whole revision wave, then finalize/check every affected batch",
+                           }},
                     "required_inputs": ["full-deck feedback", "original batch SVGs", "style_system.md", "svg_rules.md"],
                     "allowed_writers": ["current affected batch only"]}
     if not review_html.exists() or not (all_approved and approved_pages and hashes_current):
@@ -665,12 +812,14 @@ def run_command(command):
         raise SystemExit(completed.returncode)
 
 
-def make_task(root, step, batch, revision):
+def make_task(root, step, batch, revision, feedback_source="layout"):
     command = [sys.executable, str(HERE / "make_stage_task.py"), str(root), "--step", step]
     if batch:
         command += ["--batch", batch]
     if revision:
         command.append("--revision")
+        if step == "layout" and feedback_source != "layout":
+            command += ["--feedback-source", feedback_source]
     run_command(command)
 
 
@@ -679,6 +828,23 @@ def finalize_stage(root, step, batch):
     if batch:
         command += ["--batch", batch]
     run_command(command)
+
+
+def seal_ready_batches(root, batches=""):
+    requested = [item.strip() for item in str(batches).split(",") if item.strip()]
+    known = batch_ids(manifest(root))
+    selected = requested or known
+    unknown = sorted(set(selected) - set(known))
+    if unknown:
+        raise SystemExit(f"unknown SVG batches: {unknown}")
+    sealed = []
+    for batch in selected:
+        run_command([
+            sys.executable, str(HERE / "finalize_stage.py"), str(root),
+            "--step", "svg", "--batch", batch, "--seal-evidence-only",
+        ])
+        sealed.append(batch)
+    print(json.dumps({"status": "sealed", "batches": sealed, "rendered": False}, ensure_ascii=False, indent=2))
 
 
 def sync_manifest_from_content(root):
@@ -863,6 +1029,26 @@ def review_server_health(root, metadata=None):
     return None
 
 
+def open_review_url(url):
+    """Open the review immediately; a printed URL is not a human-review handoff."""
+    if os.environ.get("PPT_HELL_REVIEW_TEST_NO_OPEN") == "1":
+        return {"opened": False, "open_skipped_for_test": True}
+    if sys.platform == "darwin":
+        command = ["open", url]
+    elif os.name == "nt":
+        command = ["cmd", "/c", "start", "", url]
+    else:
+        command = ["xdg-open", url]
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SystemExit(f"REVIEW OPEN FAILED: {exc}") from exc
+    if completed.returncode:
+        details = (completed.stderr or completed.stdout or "").strip()
+        raise SystemExit(f"REVIEW OPEN FAILED: {details or command[0]}")
+    return {"opened": True}
+
+
 def start_review(root, stage):
     html_rel = {"template": "00_template_review.html", "layout": "01_layout_direction.html", "visual": "02_visual_review.html"}[stage]
     if not (root / html_rel).is_file():
@@ -871,7 +1057,8 @@ def start_review(root, stage):
     metadata = load_json(metadata_path, {})
     key = {"template": "template_review_url", "layout": "layout_url", "visual": "visual_review_url"}[stage]
     if review_server_health(root, metadata) and metadata.get(key):
-        print(json.dumps({"status": "ready", "reused": True, "url": metadata[key], **metadata}, ensure_ascii=False, indent=2))
+        opened = open_review_url(metadata[key])
+        print(json.dumps({"status": "ready", "reused": True, **opened, **metadata}, ensure_ascii=False, indent=2))
         return
     if review_server_health(root, metadata):
         stop_review(root)
@@ -895,7 +1082,8 @@ def start_review(root, stage):
         metadata = load_json(metadata_path, {})
         if review_server_health(root, metadata):
             key = {"template": "template_review_url", "layout": "layout_url", "visual": "visual_review_url"}[stage]
-            print(json.dumps({"status": "ready", "reused": False, "url": metadata[key], **metadata}, ensure_ascii=False, indent=2))
+            opened = open_review_url(metadata[key])
+            print(json.dumps({"status": "ready", "reused": False, **opened, **metadata}, ensure_ascii=False, indent=2))
             return
     raise SystemExit(f"REVIEW SERVER FAILED: not healthy within 3 seconds; inspect {log_path}")
 
@@ -980,9 +1168,12 @@ def main():
     p.add_argument("--step", required=True, choices=["template", "content", "layout", "svg"])
     p.add_argument("--batch", default="")
     p.add_argument("--revision", action="store_true")
+    p.add_argument("--feedback-source", default="layout", choices=["layout", "visual"])
     p = sub.add_parser("finalize-stage")
     p.add_argument("--step", required=True, choices=["template", "content", "layout", "svg"])
     p.add_argument("--batch", default="")
+    p = sub.add_parser("seal-ready-batches")
+    p.add_argument("--batches", default="", help="Comma-separated batch ids; default is all manifest batches")
     sub.add_parser("export")
     sub.add_parser("publish-template")
     args = parser.parse_args()
@@ -1006,9 +1197,11 @@ def main():
         elif args.command == "stop-review":
             stop_review(root)
         elif args.command == "make-task":
-            make_task(root, args.step, args.batch, args.revision)
+            make_task(root, args.step, args.batch, args.revision, args.feedback_source)
         elif args.command == "finalize-stage":
             finalize_stage(root, args.step, args.batch)
+        elif args.command == "seal-ready-batches":
+            seal_ready_batches(root, args.batches)
         elif args.command == "export":
             export(root)
         elif args.command == "publish-template":

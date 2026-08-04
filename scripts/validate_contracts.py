@@ -52,6 +52,9 @@ VALID_ASSET_PLACEMENTS = {
     "inline_diagram",
     "none",
 }
+VALID_IMAGE_FITS = {"contain", "cover"}
+VALID_CROP_RATIOS = {"original", "16:9", "4:3", "1:1", "3:4"}
+VALID_CROP_ANCHORS = {"center", "top", "bottom", "left", "right"}
 MANIFEST_REQUIRED = {"page_key", "batch_id", "svg_path", "png_path"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
 VALID_SELF_REVIEW_STATUSES = {"pass", "revise", "blocked"}
@@ -82,7 +85,7 @@ def _has_visible_copy(value):
     return False
 
 
-def validate_project(content_data, layout_data, manifest_data, stage="all"):
+def validate_project(content_data, layout_data, manifest_data, stage="all", project_root=None):
     errors = []
     warnings = []
     infos = []
@@ -217,10 +220,16 @@ def validate_project(content_data, layout_data, manifest_data, stage="all"):
                 E(f"page_content.json {pk}: '{field}' is empty")
 
     # Layout pages
+    scaffold_managed = isinstance(layout_data, dict) and "scaffold_status" in layout_data
+    if stage in ("plan", "draft", "export", "all") and scaffold_managed:
+        if layout_data.get("scaffold_status") != "completed":
+            E("layout_plan.json scaffold_status must be completed after page-specific Layout judgment")
     for i, p in enumerate(layout_pages if stage in ("plan", "draft", "export", "all") else []):
         if not isinstance(p, dict):
             continue
         pk = p.get("page_key", f"[index {i}]")
+        if scaffold_managed and p.get("scaffold_status") != "completed":
+            E(f"layout_plan.json {pk}: scaffold_status must be completed")
         for legacy in LEGACY_ID_FIELDS:
             if legacy in p:
                 W(f"layout_plan.json {pk}: uses legacy field '{legacy}' as identifier")
@@ -278,6 +287,49 @@ def validate_project(content_data, layout_data, manifest_data, stage="all"):
                     if vas.get("asset_type") in ("real_asset", "photo_placeholder", "screenshot_placeholder", "generated_image"):
                         if not str(vas.get("prompt_or_source", "")).strip():
                             W(f"layout_plan.json {pk}: visual_asset_strategy.prompt_or_source should describe source/prompt")
+                    assets = vas.get("assets", [])
+                    if assets is not None and not isinstance(assets, list):
+                        E(f"layout_plan.json {pk}: visual_asset_strategy.assets must be an array")
+                        assets = []
+                    labels = {
+                        str(zone.get("label", "")).strip()
+                        for zone in p.get("wireframe", [])
+                        if isinstance(zone, dict) and str(zone.get("label", "")).strip()
+                    }
+                    for ai, asset in enumerate(assets):
+                        target = f"layout_plan.json {pk}: visual_asset_strategy.assets[{ai}]"
+                        if not isinstance(asset, dict):
+                            E(f"{target} must be an object")
+                            continue
+                        if not str(asset.get("path", "")).strip():
+                            E(f"{target} missing project-relative 'path'")
+                        elif project_root is not None:
+                            declared_path = Path(str(asset["path"]))
+                            resolved_path = (Path(project_root) / declared_path).resolve()
+                            root_path = Path(project_root).resolve()
+                            if declared_path.is_absolute() or root_path not in resolved_path.parents:
+                                E(f"{target} path must stay inside the project")
+                            elif not resolved_path.is_file():
+                                E(f"{target} path does not exist: {asset['path']}")
+                        slot = str(asset.get("slot_label", "")).strip()
+                        if not slot or slot not in labels:
+                            E(f"{target} slot_label must match a wireframe label")
+                        if asset.get("fit") not in VALID_IMAGE_FITS:
+                            E(f"{target} fit must be contain or cover; stretch is forbidden")
+                        if asset.get("crop_ratio") not in VALID_CROP_RATIOS:
+                            E(f"{target} crop_ratio must be one of {sorted(VALID_CROP_RATIOS)}")
+                        if asset.get("crop_anchor") not in VALID_CROP_ANCHORS:
+                            E(f"{target} crop_anchor must be one of {sorted(VALID_CROP_ANCHORS)}")
+                        options = asset.get("crop_options")
+                        if not isinstance(options, list) or not 2 <= len(options) <= 3:
+                            E(f"{target} crop_options must contain 2-3 choices")
+                        else:
+                            for oi, option in enumerate(options):
+                                if not isinstance(option, dict) or any(
+                                    not str(option.get(field, "")).strip()
+                                    for field in ("label", "fit", "crop_ratio", "crop_anchor", "tradeoff")
+                                ):
+                                    E(f"{target}.crop_options[{oi}] is incomplete")
             elif field in ("page_mode",):
                 if p[field] not in ("rational", "emotional"):
                     W(f"layout_plan.json {pk}: 'page_mode' is '{p[field]}' — expected 'rational' or 'emotional'")
@@ -412,6 +464,17 @@ def validate_template_profile(file_path, visual_manifest_path=""):
                 errors.append("template_profile.json design_direction missing: " + ", ".join(missing))
         if not isinstance(data.get("limitations", []), list):
             errors.append("template_profile.json limitations must be an array")
+        reusable_assets = data.get("reusable_assets", [])
+        if not isinstance(reusable_assets, list):
+            errors.append("template_profile.json reusable_assets must be an array")
+        else:
+            for i, asset in enumerate(reusable_assets):
+                if not isinstance(asset, dict):
+                    errors.append(f"template_profile.json reusable_assets[{i}] must be an object")
+                elif asset.get("fit") not in {"cover", "contain", "none"}:
+                    errors.append(
+                        f"template_profile.json reusable_assets[{i}].fit must be cover, contain, or none; stretch is forbidden"
+                    )
         if not str(data.get("generated_at", "")).strip():
             warnings.append("template_profile.json generated_at should be set")
         return errors, warnings, infos
@@ -644,7 +707,7 @@ def run_project(args):
     if errors:
         report(errors, [], [], "All contract checks passed.")
 
-    errors, warnings, infos = validate_project(content_data, layout_data, manifest_data, args.stage)
+    errors, warnings, infos = validate_project(content_data, layout_data, manifest_data, args.stage, root)
     report(errors, warnings, infos, "All contract checks passed.")
 
 

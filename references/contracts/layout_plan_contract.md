@@ -18,6 +18,8 @@ _internal/01_layout_plan/layout_capacity_report.json
 
 ## 页面必填字段
 
+Controller初始生成的scaffold顶层及每页都含`scaffold_status: "incomplete"`。Layout执行者必须在原文件上完成逐页判断，再将顶层和每页设为`completed`。不允许删除该字段来绕过检查；旧项目中本来不含该字段的plan仍可按原contract验证。
+
 | 字段 | 规则 |
 |---|---|
 | `page_key` | 必须匹配 content 和 manifest |
@@ -29,6 +31,7 @@ _internal/01_layout_plan/layout_capacity_report.json
 | `copy_handling` | 精确上屏文案和压缩理由 |
 | `visual_asset_strategy` | 素材/图像需求和位置 |
 | `layout_reason` | 人类可读的版式理由 |
+| `scaffold_status` | scaffold项目必须为`completed` |
 
 Fidelity模式额外必填`template_layout_id`，且必须来自单一registry。该ID直接选中layout的`canvas_file`作为SVG阶段起始画布；SVG根节点的`data-layout-id`必须完全一致。
 
@@ -157,6 +160,22 @@ Wireframe 是空间计划，不是视觉装饰。空 wireframe 会被 `generate_
 - `reason`
 
 如果 `asset_need=none`，`asset_type` 和 `placement` 也必须为 `none`。
+
+现有或上传图片上屏时还必须提供`assets`数组，每项包含：
+
+| 字段 | 规则 |
+|---|---|
+| `asset_id` | 源资产ID；Layout Review上传图可为空 |
+| `path` | 项目内相对路径，必须存在 |
+| `slot_label` | 精确匹配一个非background wireframe label |
+| `fit` | `contain`或`cover`；禁止`stretch` |
+| `crop_ratio` | `original`、`16:9`、`4:3`、`1:1`或`3:4` |
+| `crop_anchor` | `center`、`top`、`bottom`、`left`或`right` |
+| `crop_options` | 2–3个真实可选方案；每项给`label/fit/crop_ratio/crop_anchor/tradeoff` |
+
+`contain`完整显示，可以留白；`cover`填满槽位，可以裁剪。两者都必须保持原图比例。Layout Review上传返回的`path`和裁剪选择是revision的冻结输入，不能由SVG阶段另选。
+
+Layout Review可新增图片槽。反馈中的新增图片必须含`is_new:true`、`operation:add`、唯一非空`slot_label`、项目内真实`path`、`changed:true`以及明确的`fit/crop_ratio/crop_anchor`。revision必须把它加入`visual_asset_strategy.assets`，创建对应wireframe label并重排本页；既有槽位仍须完整保留。批准反馈同时绑定审阅HTML和当前`layout_plan.json` hash。
 
 ## Capacity
 

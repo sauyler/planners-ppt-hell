@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -109,30 +110,75 @@ def make_content(root, internal):
     content_stub = load_json(internal / "01_content" / "page_content.json", {})
     source = str(content_stub.get("source_path", "")).strip()
     if not source:
-        raise ValueError("source_path is missing; initialize the project with --source <markdown>")
+        raise ValueError("source_path is missing; initialize the project with --source <markdown-or-docx>")
     source_path = Path(source).expanduser()
     if not source_path.is_absolute():
         source_path = (root / source_path).resolve()
     if not source_path.is_file():
-        raise ValueError(f"source Markdown not found: {source_path}")
+        raise ValueError(f"normalized source Markdown not found: {source_path}")
+    assets_manifest = internal / "00_project" / "source" / "source_assets.json"
+    source_inputs = [str(source_path)]
+    source_summary = {"has_images": False, "image_count": 0, "assets": []}
+    if assets_manifest.is_file():
+        source_summary = load_json(assets_manifest, source_summary)
+        source_inputs.append(str(assets_manifest.relative_to(root)))
+        for asset in source_summary.get("assets", []):
+            rel = str(asset.get("normalized_path", "")).strip()
+            if rel and (root / rel).is_file():
+                source_inputs.append(rel)
     task = base_task(
         root, "content", "references/contracts/page_content_contract.md",
-        [str(source_path), "references/workflow/02_content_stage.md", "references/contracts/page_content_contract.md"],
+        [*source_inputs, "references/workflow/02_content_stage.md", "references/contracts/page_content_contract.md"],
         ["_internal/01_content/page_content.json"],
     )
+    task["source_asset_handoff"] = {
+        "has_images": source_summary.get("has_images") is True,
+        "image_count": int(source_summary.get("image_count", 0) or 0),
+        "manifest": "_internal/00_project/source/source_assets.json",
+        "instruction": "Preserve source image references and state explicitly in every downstream handoff when images exist.",
+    }
     task["constraints"]["forbidden_writes"] = ["_internal/01_layout_plan/**", "_internal/02_svg_source/**"]
     return task, "content_task.json"
 
 
-def make_layout(root, internal, revision=False):
+def make_layout(root, internal, revision=False, feedback_source="layout"):
     if not (internal / "01_content" / "page_content.json").exists():
         raise ValueError("page_content.json is required before layout")
+    layout_plan = internal / "01_layout_plan" / "layout_plan.json"
+    existing_layout = load_json(layout_plan, {}) if layout_plan.exists() else {}
+    if not revision and not existing_layout.get("pages"):
+        completed = subprocess.run([
+            sys.executable,
+            str(Path(__file__).resolve().parents[1] / "scaffold_layout_plan.py"),
+            str(root),
+            "--force",
+        ], capture_output=True, text=True)
+        if completed.returncode:
+            raise ValueError(completed.stderr or completed.stdout or "Layout scaffold generation failed")
     inputs = [
         "_internal/01_content/page_content.json",
         "references/workflow/03_layout_stage.md",
         "references/domain/layout_taxonomy.md",
         "references/contracts/layout_plan_contract.md",
     ]
+    scaffold_input = ""
+    previous_plan = ""
+    if not revision:
+        scaffold_input = snapshot_file(
+            root,
+            layout_plan,
+            internal / "00_project" / "tasks" / "inputs" / "layout_scaffold" / "layout_plan.json",
+        )
+        inputs.append(scaffold_input)
+    assets_manifest = internal / "00_project" / "source" / "source_assets.json"
+    source_assets = load_json(assets_manifest, {}) if assets_manifest.is_file() else {}
+    if assets_manifest.is_file():
+        inputs.append(str(assets_manifest.relative_to(root)))
+        inputs.extend(
+            str(asset.get("normalized_path"))
+            for asset in source_assets.get("assets", [])
+            if asset.get("normalized_path") and (root / str(asset["normalized_path"])).is_file()
+        )
     if (internal / "00_project" / "template_profile.json").exists():
         inputs.append("_internal/00_project/template_profile.json")
     capacity = internal / "01_layout_plan" / "layout_capacity_report.json"
@@ -144,10 +190,14 @@ def make_layout(root, internal, revision=False):
     if fidelity.exists():
         inputs.append(str(fidelity.relative_to(root)))
     if revision:
-        feedback = internal / "01_layout_plan" / "layout_feedback.json"
+        feedback = (
+            internal / "05_review" / "feedback.json"
+            if feedback_source == "visual"
+            else internal / "01_layout_plan" / "layout_feedback.json"
+        )
         if not feedback.is_file():
-            raise ValueError("layout revision requires layout_feedback.json")
-        snapshot = internal / "00_project" / "tasks" / "inputs" / "layout_feedback.json"
+            raise ValueError(f"layout revision requires {feedback.name} from {feedback_source} review")
+        snapshot = internal / "00_project" / "tasks" / "inputs" / f"layout_from_{feedback_source}_feedback.json"
         save_json(snapshot, load_json(feedback, {}))
         previous_plan = snapshot_file(
             root,
@@ -155,9 +205,28 @@ def make_layout(root, internal, revision=False):
             internal / "00_project" / "tasks" / "inputs" / "layout_previous" / "layout_plan.json",
         )
         inputs.extend([str(snapshot.relative_to(root)), previous_plan])
+        feedback_data = load_json(feedback, {})
+        for page_feedback in feedback_data.get("pages", {}).values():
+            for upload in (page_feedback or {}).get("asset_uploads", []):
+                rel = str(upload.get("path", "")).strip()
+                if rel and (root / rel).is_file():
+                    inputs.append(rel)
     task = base_task(root, "layout", "references/contracts/layout_plan_contract.md", inputs,
                      ["_internal/01_layout_plan/layout_plan.json"])
     task["mode"] = "revision" if revision else "initial"
+    task["constraints"]["layout_scaffold"] = {
+        "source_path": scaffold_input or previous_plan,
+        "output_path": "_internal/01_layout_plan/layout_plan.json",
+        "status_field": "scaffold_status",
+        "completion": "Set the top-level and every page scaffold_status to completed after page-specific judgment; incomplete scaffolds fail validation.",
+        "rule": "Edit the deterministic scaffold in place. Do not regenerate the full page array with ad hoc Python or hand-write a replacement JSON document.",
+    }
+    task["source_asset_handoff"] = {
+        "has_images": source_assets.get("has_images") is True,
+        "image_count": int(source_assets.get("image_count", 0) or 0),
+        "manifest": "_internal/00_project/source/source_assets.json",
+        "instruction": "Place existing images deliberately; select a non-distorting fit and an explicit crop ratio/anchor for every image slot.",
+    }
     task["constraints"]["forbidden_writes"] = [
         "_internal/00_project/page_manifest.json",
         "_internal/00_project/flow_events.jsonl",
@@ -168,6 +237,7 @@ def make_layout(root, internal, revision=False):
     ]
     if revision:
         task["constraints"]["revision_feedback_sha256"] = sha256_file(feedback)
+        task["constraints"]["revision_feedback_source"] = feedback_source
         feedback_data = load_json(feedback, {})
         required_feedback = []
         global_feedback = str(feedback_data.get("global_feedback", "")).strip()
@@ -179,10 +249,47 @@ def make_layout(root, internal, revision=False):
             custom = str(page_feedback.get("custom_feedback", "")).strip()
             if custom:
                 required_feedback.append({"scope": "page", "page_key": page_key, "request": custom})
+            for annotation in page_feedback.get("annotations", []):
+                if not isinstance(annotation, dict):
+                    continue
+                text = str(annotation.get("text", "")).strip()
+                if not text:
+                    continue
+                required_feedback.append({
+                    "scope": "page_region",
+                    "page_key": page_key,
+                    "region": {
+                        "x": annotation.get("x"), "y": annotation.get("y"),
+                        "w": annotation.get("w"), "h": annotation.get("h"),
+                        "coordinate_space": "normalized_slide_0_to_1",
+                    },
+                    "request": text,
+                })
             for suggestion in page_feedback.get("selected_suggestions", []):
                 text = str(suggestion).strip()
                 if text:
                     required_feedback.append({"scope": "page", "page_key": page_key, "request": text})
+            for action in page_feedback.get("selected_review_actions", []):
+                if isinstance(action, dict):
+                    text = str(action.get("request") or action.get("desc") or action.get("title") or "").strip()
+                else:
+                    text = str(action).strip()
+                if text:
+                    required_feedback.append({"scope": "page", "page_key": page_key, "request": text})
+            for upload in page_feedback.get("asset_uploads", []):
+                if not isinstance(upload, dict) or upload.get("changed") is not True:
+                    continue
+                is_new = upload.get("is_new") is True or upload.get("operation") == "add"
+                verb = "Add as a new image slot and redesign the wireframe around" if is_new else "Apply"
+                required_feedback.append({
+                    "scope": "page",
+                    "page_key": page_key,
+                    "request": (
+                        f"{verb} image asset {upload.get('path', '')} at slot {upload.get('slot_label', '')}; "
+                        f"fit={upload.get('fit', '')}, crop_ratio={upload.get('crop_ratio', '')}, "
+                        f"crop_anchor={upload.get('crop_anchor', '')}. Preserve aspect ratio; never stretch."
+                    ),
+                })
         task["constraints"]["required_feedback_items"] = required_feedback
         task["constraints"]["previous_layout_plan"] = previous_plan
     return task, "layout_task.json"
@@ -389,6 +496,17 @@ def make_svg(root, internal, batch_id, revision=False):
     if fidelity.exists():
         inputs.append(str(scoped_runtime.relative_to(root)))
         inputs.extend(selected_canvases)
+    referenced_assets = []
+    for key in page_keys:
+        strategy = layout_by_key[key].get("visual_asset_strategy", {})
+        candidates = strategy.get("assets", []) if isinstance(strategy.get("assets"), list) else [strategy]
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            rel = str(item.get("path") or item.get("normalized_path") or "").strip()
+            if rel and (root / rel).is_file() and rel not in referenced_assets:
+                referenced_assets.append(rel)
+    inputs.extend(referenced_assets)
     layout_feedback = internal / "01_layout_plan" / "layout_feedback.json"
     scoped_layout_approval = None
     if layout_feedback.is_file():
@@ -405,12 +523,42 @@ def make_svg(root, internal, batch_id, revision=False):
         inputs.append(str(scoped_layout_approval.relative_to(root)))
     feedback = internal / "05_review" / "feedback.json"
     previous_svgs = {}
+    required_revision_feedback = []
     if revision:
         if not feedback.is_file():
             raise ValueError("SVG revision requires feedback.json")
+        feedback_data = load_json(feedback, {})
         feedback_snapshot = inputs_dir / f"svg_{batch_id}_feedback.json"
-        save_json(feedback_snapshot, load_json(feedback, {}))
+        save_json(feedback_snapshot, feedback_data)
         inputs.append(str(feedback_snapshot.relative_to(root)))
+        global_feedback = str(feedback_data.get("global_feedback", "")).strip()
+        if global_feedback:
+            required_revision_feedback.append({"scope": "global", "page_key": "", "request": global_feedback})
+        for key in page_keys:
+            page_feedback = feedback_data.get("pages", {}).get(key, {})
+            if not isinstance(page_feedback, dict):
+                continue
+            custom = str(page_feedback.get("custom_feedback", "")).strip()
+            if custom:
+                required_revision_feedback.append({"scope": "page", "page_key": key, "request": custom})
+            for annotation in page_feedback.get("annotations", []):
+                if not isinstance(annotation, dict) or not str(annotation.get("text", "")).strip():
+                    continue
+                required_revision_feedback.append({
+                    "scope": "page_region", "page_key": key,
+                    "region": {
+                        "x": annotation.get("x"), "y": annotation.get("y"),
+                        "w": annotation.get("w"), "h": annotation.get("h"),
+                        "coordinate_space": "normalized_slide_0_to_1",
+                    },
+                    "request": str(annotation.get("text", "")).strip(),
+                })
+            for action in page_feedback.get("selected_review_actions", []):
+                if isinstance(action, dict) and str(action.get("label", "")).strip():
+                    required_revision_feedback.append({
+                        "scope": "page", "page_key": key,
+                        "request": str(action.get("label", "")).strip(),
+                    })
         for key in page_keys:
             frozen = snapshot_file(
                 root,
@@ -428,7 +576,17 @@ def make_svg(root, internal, batch_id, revision=False):
     task = base_task(root, "svg", "references/contracts/svg_stage_contract.md", inputs, outputs)
     task.update({"task_id": f"svg_{batch_id}_task", "batch_id": batch_id, "pages": page_keys,
                  "mode": "revision" if revision else "initial", "executor": "one_shot_subagent_preferred"})
+    task["source_asset_handoff"] = {
+        "has_images": bool(referenced_assets),
+        "image_count": len(referenced_assets),
+        "asset_files": referenced_assets,
+        "instruction": (
+            "This batch contains existing images. Preserve aspect ratio; use SVG preserveAspectRatio meet/slice "
+            "as approved by Layout and never force-stretch width and height."
+        ),
+    }
     task["constraints"].update({
+        "layout_plan_sha256": sha256_file(internal / "01_layout_plan" / "layout_plan.json"),
         "validator_required": True,
         "fidelity_template_contract": (
             "When a batch-scoped template runtime exists, start each page from the exact selected SVG named by "
@@ -437,11 +595,23 @@ def make_svg(root, internal, batch_id, revision=False):
             "in structure/style, replace only data-template-content-layer=replace, and keep data-template-component."
         ),
         "visual_inspection": (
-            "Run visual_render_argv and inspect its batch PNGs/contact sheet. Visual must-fix findings must drive SVG "
-            "changes followed by validator and PNG reruns. Do not downgrade after the first render failure."
+            "Run the initial validator and visual render before making any quality repair. Merge validator issues and PNG findings "
+            "into one repair list, make at most one concentrated SVG repair pass, then rerun both validator and visual inspection."
         ),
         "visual_review_required": True,
-        "max_combined_repair_rounds": 2,
+        "max_combined_repair_rounds": 1,
+        "combined_quality_gate": {
+            "required": True,
+            "sequence": [
+                "initial_validator", "initial_visual_render_and_inspection", "combined_findings",
+                "zero_or_one_concentrated_repair", "final_validator", "final_visual_recheck",
+            ],
+            "forbidden": "Do not repair immediately after validator and then start a second independent visual repair loop.",
+            "self_review_fields": [
+                "initial_validator_checked", "initial_visual_checked", "combined_findings",
+                "repair_passes", "final_validator_rechecked", "final_visual_rechecked",
+            ],
+        },
         "visual_recovery_policy": {
             "version": 1,
             "permission_error_markers": [
@@ -461,6 +631,8 @@ def make_svg(root, internal, batch_id, revision=False):
             "SVG files outside this batch",
         ],
     })
+    if revision:
+        task["constraints"]["required_feedback_items"] = required_revision_feedback
     if scoped_layout_approval:
         task["constraints"]["approved_layout_feedback_sha256"] = sha256_file(scoped_layout_approval)
     if fidelity.exists():
@@ -513,6 +685,7 @@ def main():
     parser.add_argument("--step", required=True, choices=["template", "content", "layout", "svg"])
     parser.add_argument("--batch", default="")
     parser.add_argument("--revision", action="store_true")
+    parser.add_argument("--feedback-source", default="layout", choices=["layout", "visual"])
     parser.add_argument("--output", default="")
     args = parser.parse_args()
     root = Path(args.project_dir).resolve()
@@ -524,11 +697,19 @@ def main():
         if args.step == "svg":
             task, filename = make_svg(root, internal, args.batch, args.revision)
         elif args.step == "layout":
-            task, filename = make_layout(root, internal, args.revision)
+            task, filename = make_layout(root, internal, args.revision, args.feedback_source)
         else:
             task, filename = make_template(root, internal, args.revision) if args.step == "template" else makers[args.step](root, internal)
     except (ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
+    task["finalize_argv"] = [
+        sys.executable,
+        str(Path(__file__).resolve().parent / "finalize_stage.py"),
+        str(root),
+        "--step", args.step,
+    ]
+    if args.batch:
+        task["finalize_argv"].extend(["--batch", args.batch])
     task["input_hashes"] = deterministic_input_hashes(task, root)
     task["task_sha256"] = task_sha256(task)
     output_dir = Path(args.output).resolve() if args.output else internal / "00_project" / "tasks"
