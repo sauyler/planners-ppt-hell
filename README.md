@@ -5,16 +5,28 @@ A review-gated Skill for turning dense Markdown, proposal copy, and strategy dra
 ![License](https://img.shields.io/badge/license-AGPL--3.0-111111?style=flat-square)
 ![Skill](https://img.shields.io/badge/Skill-Agent-111111?style=flat-square)
 ![PPT Workflow](https://img.shields.io/badge/PPT-Review%20Gated-D46A00?style=flat-square)
+![Version](https://img.shields.io/badge/Version-V3-006BA6?style=flat-square)
 ![Codex](https://img.shields.io/badge/Codex-Supported-222222?style=flat-square)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-Supported-6B5B95?style=flat-square)
 
 [中文版](#中文版) · [English](#english)
 
-## 2026-07-18 最新升级：支持模板上传，步骤更可控、更高效
+## V3 · 2026-07-18 主版本：单一 Controller，模板可控，审阅更稳
 
-当前主版本正式支持三种模板入口：使用已批准默认模板、上传并提取新模板、或不使用模板。上传模板后，系统先生成全页视觉证据和可审阅 canvas；模板只固定视觉身份与页面边界，Layout 仍独立决定内容结构、最终文案和 wireframe。
+当前主版本正式标记为 **V3**。它支持三种模板入口：使用已批准默认模板、上传并提取新模板、或不使用模板。上传模板后，系统先生成全页视觉证据和可审阅 canvas；模板只固定视觉身份与页面边界，Layout 仍独立决定内容结构、最终文案和 wireframe。
 
-流程已经从持久 Parent/Worker 协作收敛为单一 Controller：每次只给出唯一当前动作；返修读取冻结的反馈和旧产物快照；阶段完成绑定当前 task 与当前输出；重复 SVG finalize 幂等返回，不再重复渲染或反复追加日志。错误一次聚合、集中返修，严格控制步骤但不把执行推入死循环。
+### V3 相比上一版
+
+- 单一 Controller 状态机：每次只返回唯一当前动作；Template / Content / Layout 严格串行，SVG batch 按冻结任务并发。
+- 模板三入口：默认模板、上传提取新模板、不使用模板；模板只固定视觉身份与页面边界。
+- 审阅证据绑定：Layout 批准同时绑定审阅 HTML 与 `layout_plan.json` hash；Visual 批准绑定 HTML 与 PNG hash，任何变更都会让旧批准失效。
+- 单一口径门禁：finalize 与审阅页共用同一组 blocking warnings，不再出现“finalize 通过但审阅页拦截”的双重判定。
+- 反馈修复层路由：整页、重做、版式、布局类视觉反馈回 Layout；局部拥挤、数字小等留在 SVG 层。
+- 返修闭环：返修读取冻结反馈与旧产物快照；task 永远携带完整 finalize 命令；重复 finalize 幂等返回。
+- SVG 自检：validator 与视觉检查合并为一份问题清单，最多集中返修一次，再同时复检。
+- 审阅工作台：固定视口深色画布；asset 修改状态与已批准基线比较，支持重置，不再因交互痕迹卡死审批。
+
+流程已经从持久 Parent/Worker 协作收敛为单一 Controller：错误一次聚合、集中返修，严格控制步骤但不把执行推入死循环。
 
 当前仓库根目录就是标准 Skill bundle，直接包含 `SKILL.md`、`agents/`、`assets/`、`references/` 和 `scripts/`。完整架构见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，历史升级、审计和工作日志见 [`docs/history/`](docs/history/)；历史材料不会进入正常 Skill Prompt。
 
@@ -72,6 +84,8 @@ python scripts/orchestrate/ppt_pipeline.py path/to/project next --json
 
 ### 验证
 
+当前主版本 `scripts/test/smoke_v2.py` 共 27 项检查全部通过。
+
 ```bash
 python scripts/test/smoke_v2.py
 python scripts/test/mece_scan_v2.py
@@ -92,6 +106,17 @@ Planner's PPT Hell is an open-source Skill created and maintained by **阿祖不
 It is not a one-click template generator. The agent structures content, plans layouts, creates SVG pages, renders previews, and runs deterministic checks. The human approves the template layouts, the full-deck Layout Plan, and the final visual deck.
 
 > The model may draft, revise, and self-check. It may not approve itself.
+
+### V3 highlights
+
+- One Controller, one current action. Template, Content, and Layout run serially; SVG batches run as frozen disjoint tasks.
+- Three template entries: approved default, upload-and-extract, or no template. Template owns visual identity and page boundaries only.
+- Approval provenance is hash-bound: Layout binds review HTML plus `layout_plan.json`; Visual binds review HTML plus PNGs.
+- Single review gate: finalization and review pages share one blocking-warning policy.
+- Feedback routing: page-wide or layout-level visual feedback returns to Layout; local issues stay in SVG.
+- Revision tasks freeze feedback and prior outputs; every task carries a complete `finalize_argv`; repeated finalize is idempotent.
+- SVG quality loop: one combined validator + visual finding list, at most one concentrated repair pass.
+- Review workbench: fixed-viewport dark canvas, derived asset-change state, and reset controls.
 
 ### Current workflow
 
