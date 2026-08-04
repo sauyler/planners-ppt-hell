@@ -5,16 +5,34 @@ A review-gated Skill for turning dense Markdown, proposal copy, and strategy dra
 ![License](https://img.shields.io/badge/license-AGPL--3.0-111111?style=flat-square)
 ![Skill](https://img.shields.io/badge/Skill-Agent-111111?style=flat-square)
 ![PPT Workflow](https://img.shields.io/badge/PPT-Review%20Gated-D46A00?style=flat-square)
+![Version](https://img.shields.io/badge/Version-V3-006BA6?style=flat-square)
 ![Codex](https://img.shields.io/badge/Codex-Supported-222222?style=flat-square)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-Supported-6B5B95?style=flat-square)
 
 [中文版](#中文版) · [English](#english)
 
-## 2026-07-18 最新升级：支持模板上传，步骤更可控、更高效
+## V3 · 2026-08-04 今日更新：图片全流程、全新审阅界面、前置 Skill 推荐
 
-当前主版本正式支持三种模板入口：使用已批准默认模板、上传并提取新模板、或不使用模板。上传模板后，系统先生成全页视觉证据和可审阅 canvas；模板只固定视觉身份与页面边界，Layout 仍独立决定内容结构、最终文案和 wireframe。
+当前版本正式标记为 **V3（2026-08-04）**。相比仓库上一版本，本次更新集中在三件事：
 
-流程已经从持久 Parent/Worker 协作收敛为单一 Controller：每次只给出唯一当前动作；返修读取冻结的反馈和旧产物快照；阶段完成绑定当前 task 与当前输出；重复 SVG finalize 幂等返回，不再重复渲染或反复追加日志。错误一次聚合、集中返修，严格控制步骤但不把执行推入死循环。
+### 1. 图片全流程支持
+
+图片现在作为正式输入资产贯穿全流程：Content 登记素材角色，Layout 绑定图槽与裁剪决策，SVG 按批准比例执行，PNG 预览复检，最终导出到可编辑 PPTX。图片支持 `contain` / `cover`、原始比例和多种裁剪锚点，全程禁止拉伸。
+
+### 2. 全新设计的审阅界面，支持图片上传
+
+Layout 与 Visual 审阅页重新设计为固定视口工作台：深色画布、逐页主工作台、底部统一提交。图片支持拖拽、点击和剪贴板上传，可逐槽位查看裁剪方案、替换或重置图片，也能新增图片槽位；图片变更状态与已批准基线分离，不再因为交互痕迹卡死审批。
+
+### 3. 前置 Skill 推荐
+
+进入本 Skill 之前，建议先按场景选择前置 Skill：
+
+- 营销 / 策略从业者：先使用 `PlannersProposalSystem` 完成策略方向、Storyline 与逐页提案文案。
+- 非营销 / 内容材料场景：先使用 `PPT by page` 把 Word、PDF、Markdown 或多源资料整理成逐页内容稿与图片资产。
+
+前置 Skill 完成内容整理后，再交给 Planner's PPT Hell 完成版式、审阅和可编辑 PPTX 导出。
+
+底层流程仍由单一 Controller 驱动：每次只返回唯一当前动作，错误一次聚合、集中返修，严格控制步骤但不把执行推入死循环。
 
 当前仓库根目录就是标准 Skill bundle，直接包含 `SKILL.md`、`agents/`、`assets/`、`references/` 和 `scripts/`。完整架构见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，历史升级、审计和工作日志见 [`docs/history/`](docs/history/)；历史材料不会进入正常 Skill Prompt。
 
@@ -25,6 +43,13 @@ Planner's PPT Hell 是 **阿祖不看 TVC** 创建与维护的开源 Skill，用
 它不是一键模板生成器，而是一条受控生产线：Agent 负责理解内容、制定版式、生成 SVG、预览和校验；人负责在 Template、Layout 和最终 Visual Review 三个关键节点做决定。核心规则是：
 
 > 模型可以起草、修改和自检，但不能批准自己。
+
+### 前置 Skill 推荐
+
+- 营销 / 策略提案场景：先使用 `PlannersProposalSystem` 完成策略方向、Storyline 与逐页提案文案。
+- 非营销 / 内容材料场景：先使用 `PPT by page` 把 Word、PDF、Markdown 或多源资料整理成逐页内容稿与图片资产。
+
+前置 Skill 完成内容整理后，再交给 Planner's PPT Hell 完成版式、人工审阅与可编辑 PPTX 导出。
 
 ### 当前流程
 
@@ -72,6 +97,8 @@ python scripts/orchestrate/ppt_pipeline.py path/to/project next --json
 
 ### 验证
 
+当前主版本 `scripts/test/smoke_v2.py` 共 27 项检查全部通过。
+
 ```bash
 python scripts/test/smoke_v2.py
 python scripts/test/mece_scan_v2.py
@@ -92,6 +119,12 @@ Planner's PPT Hell is an open-source Skill created and maintained by **阿祖不
 It is not a one-click template generator. The agent structures content, plans layouts, creates SVG pages, renders previews, and runs deterministic checks. The human approves the template layouts, the full-deck Layout Plan, and the final visual deck.
 
 > The model may draft, revise, and self-check. It may not approve itself.
+
+### V3 highlights (2026-08-04)
+
+- Full-pipeline image support: images are registered as source assets, bound to layout slots with approved crop decisions, executed in SVG, checked in PNG previews, and exported into editable PPTX without stretching.
+- Newly designed review workbench with image upload: drag, click, or paste images; per-slot crop comparison, replace, reset, and add-new-slot flows on a fixed-viewport dark canvas.
+- Upstream Skill recommendations: marketing and strategy work should start with `PlannersProposalSystem`; non-marketing content material should start with `PPT by page`, then hand off to this Skill for editable PPT production.
 
 ### Current workflow
 
