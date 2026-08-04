@@ -11,22 +11,28 @@ A review-gated Skill for turning dense Markdown, proposal copy, and strategy dra
 
 [中文版](#中文版) · [English](#english)
 
-## V3 · 2026-07-18 主版本：单一 Controller，模板可控，审阅更稳
+## V3 · 2026-08-04 今日更新：图片全流程、全新审阅界面、前置 Skill 推荐
 
-当前主版本正式标记为 **V3**。它支持三种模板入口：使用已批准默认模板、上传并提取新模板、或不使用模板。上传模板后，系统先生成全页视觉证据和可审阅 canvas；模板只固定视觉身份与页面边界，Layout 仍独立决定内容结构、最终文案和 wireframe。
+当前版本正式标记为 **V3（2026-08-04）**。相比仓库上一版本，本次更新集中在三件事：
 
-### V3 相比上一版
+### 1. 图片全流程支持
 
-- 单一 Controller 状态机：每次只返回唯一当前动作；Template / Content / Layout 严格串行，SVG batch 按冻结任务并发。
-- 模板三入口：默认模板、上传提取新模板、不使用模板；模板只固定视觉身份与页面边界。
-- 审阅证据绑定：Layout 批准同时绑定审阅 HTML 与 `layout_plan.json` hash；Visual 批准绑定 HTML 与 PNG hash，任何变更都会让旧批准失效。
-- 单一口径门禁：finalize 与审阅页共用同一组 blocking warnings，不再出现“finalize 通过但审阅页拦截”的双重判定。
-- 反馈修复层路由：整页、重做、版式、布局类视觉反馈回 Layout；局部拥挤、数字小等留在 SVG 层。
-- 返修闭环：返修读取冻结反馈与旧产物快照；task 永远携带完整 finalize 命令；重复 finalize 幂等返回。
-- SVG 自检：validator 与视觉检查合并为一份问题清单，最多集中返修一次，再同时复检。
-- 审阅工作台：固定视口深色画布；asset 修改状态与已批准基线比较，支持重置，不再因交互痕迹卡死审批。
+图片现在作为正式输入资产贯穿全流程：Content 登记素材角色，Layout 绑定图槽与裁剪决策，SVG 按批准比例执行，PNG 预览复检，最终导出到可编辑 PPTX。图片支持 `contain` / `cover`、原始比例和多种裁剪锚点，全程禁止拉伸。
 
-流程已经从持久 Parent/Worker 协作收敛为单一 Controller：错误一次聚合、集中返修，严格控制步骤但不把执行推入死循环。
+### 2. 全新设计的审阅界面，支持图片上传
+
+Layout 与 Visual 审阅页重新设计为固定视口工作台：深色画布、逐页主工作台、底部统一提交。图片支持拖拽、点击和剪贴板上传，可逐槽位查看裁剪方案、替换或重置图片，也能新增图片槽位；图片变更状态与已批准基线分离，不再因为交互痕迹卡死审批。
+
+### 3. 前置 Skill 推荐
+
+进入本 Skill 之前，建议先按场景选择前置 Skill：
+
+- 营销 / 策略从业者：先使用 `PlannersProposalSystem` 完成策略方向、Storyline 与逐页提案文案。
+- 非营销 / 内容材料场景：先使用 `PPT by page` 把 Word、PDF、Markdown 或多源资料整理成逐页内容稿与图片资产。
+
+前置 Skill 完成内容整理后，再交给 Planner's PPT Hell 完成版式、审阅和可编辑 PPTX 导出。
+
+底层流程仍由单一 Controller 驱动：每次只返回唯一当前动作，错误一次聚合、集中返修，严格控制步骤但不把执行推入死循环。
 
 当前仓库根目录就是标准 Skill bundle，直接包含 `SKILL.md`、`agents/`、`assets/`、`references/` 和 `scripts/`。完整架构见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，历史升级、审计和工作日志见 [`docs/history/`](docs/history/)；历史材料不会进入正常 Skill Prompt。
 
@@ -37,6 +43,13 @@ Planner's PPT Hell 是 **阿祖不看 TVC** 创建与维护的开源 Skill，用
 它不是一键模板生成器，而是一条受控生产线：Agent 负责理解内容、制定版式、生成 SVG、预览和校验；人负责在 Template、Layout 和最终 Visual Review 三个关键节点做决定。核心规则是：
 
 > 模型可以起草、修改和自检，但不能批准自己。
+
+### 前置 Skill 推荐
+
+- 营销 / 策略提案场景：先使用 `PlannersProposalSystem` 完成策略方向、Storyline 与逐页提案文案。
+- 非营销 / 内容材料场景：先使用 `PPT by page` 把 Word、PDF、Markdown 或多源资料整理成逐页内容稿与图片资产。
+
+前置 Skill 完成内容整理后，再交给 Planner's PPT Hell 完成版式、人工审阅与可编辑 PPTX 导出。
 
 ### 当前流程
 
@@ -107,16 +120,11 @@ It is not a one-click template generator. The agent structures content, plans la
 
 > The model may draft, revise, and self-check. It may not approve itself.
 
-### V3 highlights
+### V3 highlights (2026-08-04)
 
-- One Controller, one current action. Template, Content, and Layout run serially; SVG batches run as frozen disjoint tasks.
-- Three template entries: approved default, upload-and-extract, or no template. Template owns visual identity and page boundaries only.
-- Approval provenance is hash-bound: Layout binds review HTML plus `layout_plan.json`; Visual binds review HTML plus PNGs.
-- Single review gate: finalization and review pages share one blocking-warning policy.
-- Feedback routing: page-wide or layout-level visual feedback returns to Layout; local issues stay in SVG.
-- Revision tasks freeze feedback and prior outputs; every task carries a complete `finalize_argv`; repeated finalize is idempotent.
-- SVG quality loop: one combined validator + visual finding list, at most one concentrated repair pass.
-- Review workbench: fixed-viewport dark canvas, derived asset-change state, and reset controls.
+- Full-pipeline image support: images are registered as source assets, bound to layout slots with approved crop decisions, executed in SVG, checked in PNG previews, and exported into editable PPTX without stretching.
+- Newly designed review workbench with image upload: drag, click, or paste images; per-slot crop comparison, replace, reset, and add-new-slot flows on a fixed-viewport dark canvas.
+- Upstream Skill recommendations: marketing and strategy work should start with `PlannersProposalSystem`; non-marketing content material should start with `PPT by page`, then hand off to this Skill for editable PPT production.
 
 ### Current workflow
 
