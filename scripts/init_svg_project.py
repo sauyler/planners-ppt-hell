@@ -5,10 +5,13 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from prepare_source_material import prepare_source_material
+
 INTERNAL_ROOT = "_internal"
 
 CANONICAL_DIRS = [
     f"{INTERNAL_ROOT}/00_project",
+    f"{INTERNAL_ROOT}/00_project/source/assets",
     f"{INTERNAL_ROOT}/01_content",
     f"{INTERNAL_ROOT}/01_layout_plan",
     f"{INTERNAL_ROOT}/02_svg_source",
@@ -45,16 +48,11 @@ def main():
         description="Initialize a Planner's PPT Hell project scaffold."
     )
     parser.add_argument("project_dir", help="Project output directory")
-    parser.add_argument("--source", required=True, help="Source markdown path")
+    parser.add_argument("--source", required=True, help="Source Markdown, DOC, or DOCX path")
     args = parser.parse_args()
     source = Path(args.source).expanduser().resolve()
     if not source.is_file():
-        parser.error(f"source Markdown not found: {source}")
-    try:
-        source.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        parser.error(f"source Markdown must be readable UTF-8 text: {source}: {exc}")
-    source_path = str(source)
+        parser.error(f"source material not found: {source}")
 
     root = Path(args.project_dir).expanduser().resolve()
     if root.exists() and any(root.iterdir()):
@@ -67,13 +65,26 @@ def main():
             (staging / dir_path).mkdir(parents=True, exist_ok=True)
 
         for rel_path, content in STARTER_FILES.items():
-            if rel_path == f"{INTERNAL_ROOT}/01_content/page_content.json":
-                content = json.dumps(
-                    {"project": "", "source_path": source_path, "pages": []},
-                    ensure_ascii=False,
-                    indent=2,
-                )
             (staging / rel_path).write_text(content, encoding="utf-8")
+
+        try:
+            source_manifest = prepare_source_material(
+                staging,
+                source,
+                staging / INTERNAL_ROOT / "00_project" / "source",
+            )
+        except (OSError, UnicodeError, ValueError) as exc:
+            parser.error(str(exc))
+        content_stub = {
+            "project": "",
+            "source_path": source_manifest["normalized_source"],
+            "source_assets_path": f"{INTERNAL_ROOT}/00_project/source/source_assets.json",
+            "pages": [],
+        }
+        (staging / INTERNAL_ROOT / "01_content" / "page_content.json").write_text(
+            json.dumps(content_stub, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
         if root.exists():
             root.rmdir()

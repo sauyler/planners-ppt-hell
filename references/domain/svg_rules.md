@@ -95,6 +95,7 @@ metadata 缺失是阻断错误，因为 pipeline 依赖它做校验和可追溯�
 | `<circle>` | 半径 `r >= 6` | 小点可用 `<rect>` 或增大半径 |
 | `<linearGradient>` / `<radialGradient>` | 可用但会回退为首个 stop-color | 不要依赖渐变细节表达核心信息 |
 | `clip-path="inset(round)"` | 可提取最大圆角值 | 不要用它做非对称圆角 |
+| `<image preserveAspectRatio>` | `meet`完整显示、`slice`等比裁剪 | `none`会拉伸，禁止使用 |
 
 ---
 
@@ -263,6 +264,30 @@ LINE_HEIGHT = font-size x 1.5
 - 分组内文字仍必须显式写 `fill`、`font-family`、`font-size`。
 - 不要依赖父级 `<g>` 继承关键文本样式。
 
+### 5.5 图片
+
+图片必须来自task声明的项目内相对路径，并绑定Layout槽位：
+
+```svg
+<image href="../../00_project/source/assets/asset_001.jpg"
+       x="1080" y="180" width="720" height="720"
+       preserveAspectRatio="xMidYMid slice"
+       data-slot="hero_image"
+       data-wireframe-label="hero_image"
+       data-crop-ratio="1:1"/>
+```
+
+- `contain`映射为`xMidYMid meet`，完整显示且允许留白。
+- `cover`映射为`slice`；中心裁剪用`xMidYMid`，上/下/左/右焦点分别用`YMin/YMax/xMin/xMax`。
+- 禁止`preserveAspectRatio="none"`，禁止通过同时改图片像素宽高来伪造裁剪。
+
+### 5.6 饼图与折线图
+
+- 折线优先`polyline`，面积图与饼图扇区才使用`path`。
+- 饼图弧使用标准`A rx ry rotation large-arc-flag sweep-flag x y`，每个扇区显式`Z`闭合；不要用手工二次曲线模拟圆弧。
+- 图表组只使用`translate/scale`；不得使用`matrix/rotate/skew`。
+- 导出前对含`A/C/Q`路径或嵌套`translate/scale`的页执行SVG预览与PPT转换对照。转换报告绿色不能替代肉眼检查。
+
 ---
 
 ## 6. 内容完整性
@@ -343,6 +368,8 @@ SVG 上屏文案可以执行 `copy_handling` 中已记录的取舍，但不得�
 | `opacity` / `fill-opacity` / `stroke-opacity` | 映射为 alpha 透明度 |
 | `letter-spacing` | 映射为 `a:rPr spc` |
 | `<path d="...">` | 转为 freeform；曲线折线近似 |
+| `<image ... meet>` | 保持比例完整放入图片框 |
+| `<image ... slice>` | 保持比例并按锚点裁剪填满图片框 |
 
 不要把 PPT 当主编辑面修 SVG；源 SVG 才是主编辑面。
 
@@ -365,6 +392,8 @@ SVG 上屏文案可以执行 `copy_handling` 中已记录的取舍，但不得�
 - [ ] 圆角使用 `rx` 或重叠 `rect`，不用 CSS `clip-path` 做非对称圆角。
 - [ ] 箭头用 `line + polygon`。
 - [ ] 普通直线/折线用 `line` / `polyline`。
+- [ ] 所有图片使用`meet`或`slice`并绑定`data-slot`；没有`preserveAspectRatio="none"`。
+- [ ] 饼图弧为标准`A`命令且扇区闭合；图表页已对照PPT转换结果。
 - [ ] 所有 `<circle>` 的 `r >= 6`，除非该圆形不是可见元素。
 - [ ] 内容完整，数字、百分比、来源、表格行列没有丢失。
 - [ ] PNG 预览肉眼可读，并符合已批准 `layout_plan.json`。

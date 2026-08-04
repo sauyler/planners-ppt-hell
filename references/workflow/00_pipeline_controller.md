@@ -5,11 +5,13 @@ Controller是唯一状态机和机器元数据写者。当前Agent执行它返�
 ## 启动
 
 ```bash
-python scripts/init_svg_project.py <project_dir> --source <source.md>
+python scripts/init_svg_project.py <project_dir> --source <source.md|source.doc|source.docx>
 python scripts/orchestrate/ppt_pipeline.py <project_dir> next --json
 ```
 
 已有项目只运行`next`。禁止重复初始化。
+
+初始化会把源文稿规范化为`_internal/00_project/source/source.md`，并把Markdown/DOCX中的本地图片复制到项目资产目录、写入`source_assets.json`。任何阶段task声明`source_asset_handoff.has_images=true`时，执行者交接必须明说图片存在，不能只交接文案。
 
 ## 执行动作
 
@@ -23,9 +25,11 @@ python scripts/orchestrate/ppt_pipeline.py <project_dir> next --json
 
 每个stage只读取task的`input_files`、只写`output_files`。模型不写时间、hash、状态或result。`finalize-stage`一次验证所有输入、输出、合同、hard gate和视觉证据；失败一次返回完整issues。
 
+task必须携带可直接执行的`finalize_argv`。用户Review生成与`finalize-stage`共用`review_policy.py`中的同一阻断告警集合，不能出现“审阅页拒绝但finalize通过”的双重门禁。Layout人工批准绑定HTML和`layout_plan.json` hash；Visual批准绑定HTML和PNG hash。
+
 ## 顺序
 
-Template（仅新模板）→ Content → Layout → SVG batches。Template、Content、Layout固定串行。SVG默认逐batch串行；每个batch优先交给一个明确提示用户的一次性子Agent，宿主不支持子Agent时才由当前Agent串行降级执行。多个冻结task可由宿主选择一次性并发，但不是流程依赖。并发执行者不通信、不恢复、不保存身份。
+Template（仅新模板）→ Content → Layout → SVG batches。Template、Content、Layout固定串行。SVG Controller一次交出全部ready task，执行者必须默认按每波最多3个batch并发（同时受宿主可用槽位限制）；不得保守改为逐batch串行。每个batch优先交给一个明确提示用户的一次性子Agent；只有宿主不支持子Agent时，先告知用户再由当前Agent串行降级。并发执行者不通信、不恢复、不保存身份。
 
 ## 人审
 
@@ -34,6 +38,7 @@ Template（仅新模板）→ Content → Layout → SVG batches。Template、Co
 - Visual：全deck PNG。
 
 Controller和模型均不得写批准。revision由Review Server反馈快照生成，不依赖旧会话。
+Controller启动任一审阅后必须验证Server健康并直接打开对应页面。打开失败即阻断并返回诊断，不把URL当作完成结果。
 
 ## 日志
 

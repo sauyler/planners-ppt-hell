@@ -17,6 +17,8 @@ import json
 import sys
 from pathlib import Path
 
+from review_policy import blocking_warning_issues
+
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -96,11 +98,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .suggestions{{display:grid;gap:10px;margin-bottom:18px}}
   .suggestions label{{display:flex;align-items:center;gap:12px;padding:15px 16px;font-size:16px;color:#39424E;cursor:pointer;background:#FFF;border:1px solid var(--line);border-radius:8px;min-height:58px;transition:.16s ease}}
   .suggestions label:hover{{border-color:#007A53;background:#F2FBF7;transform:translateY(-1px)}}
-  .suggestions input,.approve-row input{{width:22px;height:22px;accent-color:#007A53;flex:0 0 auto}}
+  .suggestions input{{width:22px;height:22px;accent-color:#007A53;flex:0 0 auto}}
   .feedback-text textarea{{width:100%;min-height:92px;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:16px;font-family:inherit;resize:vertical;background:#FFF}}
   .action-zone{{position:sticky;bottom:14px;background:rgba(255,255,255,.94);border:1px solid var(--line);box-shadow:0 14px 34px rgba(5,28,44,.10);border-radius:8px;padding:14px;margin-top:10px;backdrop-filter:blur(10px)}}
-  .approve-row{{display:flex;align-items:center;gap:12px;padding:14px 16px;font-size:16px;background:#F7FBF8;border:1px solid #CFE8D8;border-radius:8px;font-weight:850}}
-  .submit-area{{text-align:center;padding:16px 0 40px}}
+  .approval-status{{padding:10px 12px;border:1px solid #D8DEE3;border-radius:7px;background:#F5F7F8;color:#6E7A84;font-size:12px;font-weight:800}}
+  .approval-status.approved{{border-color:#BFDCCB;background:#F0F8F3;color:#08744F}}
   .submit-btn{{background:var(--danger);color:#FFF;border:none;padding:14px 40px;font-size:18px;font-weight:850;border-radius:8px;cursor:pointer;margin:0 6px;box-shadow:0 12px 28px rgba(230,0,18,.18)}}
   .submit-btn.green{{background:#007A53}}
   .toast{{position:fixed;top:20px;right:20px;background:#051C2C;color:#FFF;padding:14px 24px;border-radius:8px;font-size:15px;display:none;z-index:999}}
@@ -112,7 +114,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   body{{background:#EEF3F8;color:#182433}}
   .header{{background:#06131B;padding:20px 40px;display:grid;grid-template-columns:1fr auto;grid-template-areas:"title status" ". brand";align-items:center;gap:8px 18px;box-shadow:none;transition:padding .18s ease}}
   .header h1{{grid-area:title;font-size:24px}}
-  .header .creator{{grid-area:brand;justify-self:end;font-size:15px;font-weight:900;color:#FFFFFF;margin-left:0;white-space:nowrap}}
+  .header .creator{{grid-area:brand;justify-self:end;display:flex;align-items:center;gap:9px;color:#DCE5EA;white-space:nowrap}}
+  .creator-mark{{display:grid;place-items:center;width:30px;height:30px;border:1px solid rgba(255,255,255,.24);border-radius:8px;background:rgba(255,255,255,.06);color:#F0A05A;font:950 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace}}
+  .creator-copy{{display:grid;line-height:1.1}}.creator-copy strong{{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#F5F7F8}}.creator-copy small{{margin-top:4px;font-size:10px;color:#7F8D97}}
   .status-bar{{grid-area:status;justify-self:end;align-self:center}}
   body.review-scrolled .header{{padding:10px 40px;grid-template-areas:"title status"}}
   body.review-scrolled .header .creator{{display:none}}
@@ -135,7 +139,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .review-grid{{grid-template-columns:minmax(760px,1.65fr) minmax(330px,.62fr);gap:22px}}
   .preview-panel{{top:96px}}
   .preview-box img{{box-shadow:none;border-color:#E6ECF3}}
-  .val-summary,.accept-note,.review-action,.feedback-text textarea,.approve-row,details.self-review-status{{border-color:#E6ECF3}}
+  .val-summary,.accept-note,.review-action,.feedback-text textarea,details.self-review-status{{border-color:#E6ECF3}}
   .page-meta,.section-label{{font-size:12px}}
   .review-action{{padding:12px 14px}}
   .action-title{{font-size:14px}}
@@ -144,19 +148,92 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   details.self-review-status summary{{list-style:none;cursor:pointer;padding:11px 14px;font-weight:900}}
   details.self-review-status summary::-webkit-details-marker{{display:none}}
   .self-review-body{{padding:0 14px 12px;line-height:1.7;color:inherit}}
-  .approve-row{{cursor:pointer}}
   .action-zone{{box-shadow:0 10px 28px rgba(5,28,44,.08)}}
-  .submit-area{{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:12px;padding:28px 0 34px;background:linear-gradient(180deg,#EEF3F8,#F7F9FC)}}
   .submit-btn{{min-width:210px;border-radius:10px;margin:0;padding:13px 28px;box-shadow:none}}
-  .submit-area div,.submit-area p{{flex-basis:100%;text-align:center}}
   .project-credit{{font-size:14px;padding-bottom:22px}}
   @media(max-width:1100px){{.workspace{{grid-template-columns:1fr;padding-left:18px}}.side-nav{{position:static;width:auto}}.nav-list{{flex-direction:row;overflow:auto}}.review-grid{{grid-template-columns:1fr}}.preview-panel{{position:static}}.header{{grid-template-columns:1fr;grid-template-areas:"title" "brand" "status"}}.header .creator,.status-bar{{justify-self:start;white-space:normal}}}}
+  /* Visual proofing desk v2: compare one slide, make one decision. */
+  body{{min-height:100vh;padding-bottom:74px;background:#E6EAED}}
+  .header{{height:72px;padding:0 28px;grid-template-columns:auto 1fr auto;grid-template-areas:"title brand status";border-bottom:1px solid rgba(255,255,255,.09)}}
+  .header h1{{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;font-size:24px}}
+  .header .creator{{justify-self:start;margin-left:18px}}
+  .workspace{{height:calc(100vh - 72px - 74px);min-height:640px;padding:0;grid-template-columns:112px minmax(0,1fr);gap:0}}
+  .side-nav{{position:relative;top:0;justify-self:stretch;width:auto;height:100%;padding:14px 10px;border:0;border-radius:0;background:#111B22;box-shadow:none;overflow:hidden}}
+  .side-nav-title{{display:flex;justify-content:center;color:#71808B;padding:0 0 9px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}}
+  .nav-list{{display:flex;align-items:stretch;gap:7px;max-height:calc(100vh - 180px);overflow:auto;padding:0 3px;scrollbar-width:none}}
+  .nav-list::-webkit-scrollbar,.qa-panel::-webkit-scrollbar,.preview-panel::-webkit-scrollbar{{display:none}}
+  .nav-item{{counter-increment:none;position:relative;display:block;width:100%;height:auto;padding:5px;border:1px solid transparent;border-radius:7px;background:transparent;color:#AAB4BC}}
+  .nav-item::before{{content:none}}
+  .nav-item:hover,.nav-item.active{{background:#1E2A32;border-color:#34434E;transform:none;color:#FFF}}
+  .nav-thumb{{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:4px;background:#2A3740}}
+  .nav-copy{{position:absolute;left:8px;top:8px;min-width:24px;padding:3px 5px;border-radius:4px;background:rgba(7,19,26,.78);color:#FFF;font:800 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}}
+  .nav-state{{position:absolute;right:8px;top:8px;width:8px;height:8px;border:1px solid rgba(255,255,255,.75);border-radius:999px;background:#64737D}}
+  .nav-item.reviewed .nav-state{{background:#52B788}}
+  .nav-item.changed .nav-state{{background:#F0A05A}}
+  .nav-item.machine-fail{{border-color:rgba(233,92,98,.62)}}
+  .container{{height:100%;padding:18px;overflow:hidden;background:#111B22}}
+  .global-alert{{position:absolute;z-index:20;left:130px;right:18px;top:86px;margin:0}}
+  .page-review{{display:none;height:100%;margin:0;border:0;border-radius:10px;box-shadow:0 18px 50px rgba(19,31,40,.12);overflow:hidden}}
+  .page-review.active{{display:grid;grid-template-rows:auto minmax(0,1fr);animation:proofIn .2s ease both}}
+  @keyframes proofIn{{from{{opacity:.35;transform:translateY(5px)}}to{{opacity:1;transform:none}}}}
+  .page-head{{padding:12px 20px;background:#FFF;border-bottom:1px solid #E5E9EC}}
+  .page-head h2{{font-size:18px}}
+  .page-body{{padding:0;min-height:0;overflow:hidden}}
+  .review-grid{{height:100%;grid-template-columns:minmax(680px,1.55fr) minmax(340px,.63fr);gap:0}}
+  .preview-panel{{position:relative;top:0;min-height:0;display:grid;place-items:center;padding:16px;overflow:hidden;background:#20292F}}
+  .preview-row,.grid-2col{{width:100%;height:100%;margin:0;min-height:0}}
+  .preview-box{{width:100%;height:100%;max-width:1160px;margin:0 auto;display:grid;place-items:center;min-height:0}}
+  .preview-box img{{display:block;width:100%;height:100%;object-fit:contain;border:0;border-radius:4px;box-shadow:0 26px 70px rgba(0,0,0,.30)}}
+  .annotation-stage{{position:relative;width:min(100%,calc((100vh - 190px)*16/9));max-height:100%;aspect-ratio:16/9;line-height:0;user-select:none}}
+  .annotation-layer{{position:absolute;inset:0;z-index:5;pointer-events:none;cursor:crosshair}}
+  .annotation-layer.annotating{{pointer-events:auto;background:rgba(255,142,43,.04);box-shadow:inset 0 0 0 2px #FF8E2B}}
+  .annotation-rect{{position:absolute;border:2px solid #FF6A3D;background:rgba(255,106,61,.12);box-shadow:0 0 0 1px rgba(255,255,255,.9);border-radius:3px}}
+  .annotation-rect::before{{content:attr(data-number);position:absolute;left:-2px;top:-22px;display:grid;place-items:center;min-width:22px;height:20px;padding:0 4px;border-radius:4px 4px 0 0;background:#FF6A3D;color:#FFF;font:800 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace}}
+  .region-feedback{{margin:14px 0;padding:12px;border:1px solid #D8DEE3;border-radius:9px;background:#FFF8ED}}
+  .region-feedback-head{{display:flex;align-items:center;justify-content:space-between;gap:10px}}
+  .region-feedback-head strong{{font-size:13px;color:#7A430D}}
+  .region-btn{{padding:8px 11px;border:1px solid #D4832D;border-radius:7px;background:#FFF;color:#9A520A;font:800 12px/1 inherit;cursor:pointer}}
+  .region-hint{{margin-top:7px;font-size:11px;line-height:1.5;color:#7A6856}}
+  .region-item{{margin-top:9px;padding:9px;border:1px solid #EDC99D;border-radius:7px;background:#FFF}}
+  .region-item label{{display:block;margin-bottom:5px;font-size:11px;font-weight:800;color:#9A520A}}
+  .region-item textarea{{width:100%;min-height:58px;padding:8px;border:1px solid #D8DEE3;border-radius:6px;font:13px/1.5 inherit;resize:vertical}}
+  .region-item-actions{{display:flex;justify-content:flex-end;margin-top:5px}}.region-delete{{border:0;background:transparent;color:#9A5B4C;cursor:pointer;font-size:11px}}
+  .preview-panel>.section-label{{display:none}}
+  .qa-panel{{min-height:0;padding:16px;overflow:auto;background:#FAFBFC;scrollbar-width:none;overscroll-behavior:contain}}
+  .section-label{{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#7E8992}}
+  .val-summary,.accept-note,.review-action,.feedback-text textarea,details.self-review-status{{border-color:#D8DEE3}}
+  .action-zone{{position:relative;bottom:auto;margin-top:14px;background:#FFF;box-shadow:none}}
+  .feedback-text textarea{{min-height:80px;font-size:14px}}
+  .project-credit{{display:none}}
+  .review-dock{{position:fixed;left:0;right:0;bottom:0;z-index:60;height:74px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px;padding:0 24px 0 136px;background:#07131A;color:#FFF;border-top:1px solid rgba(255,255,255,.08);box-shadow:0 -12px 34px rgba(7,19,26,.18)}}
+  .dock-group{{display:flex;align-items:center;gap:8px}}.dock-group.end{{justify-content:flex-end}}
+  .dock-btn{{height:40px;padding:0 16px;border:1px solid #35444E;border-radius:7px;background:#13232D;color:#DDE5EA;font:800 13px/1 inherit;cursor:pointer}}
+  .dock-btn:hover{{border-color:#657681;background:#1B2D38}}
+  .dock-btn.primary{{border-color:#4CB782;background:#1E8A5B;color:#FFF}}
+  .dock-btn.warn{{border-color:#D08A46;background:#B86419;color:#FFF}}
+  .dock-btn.danger{{border-color:#E95C62;background:#E60012;color:#FFF}}
+  .dock-progress{{font:800 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#93A1AB;letter-spacing:.08em}}
+  .decision-sheet{{position:fixed;inset:0;z-index:100;display:none;place-items:center;padding:24px;background:rgba(7,19,26,.88);backdrop-filter:blur(10px)}}
+  .decision-sheet.open{{display:grid}}
+  .decision-card{{width:min(680px,calc(100vw - 48px));padding:24px;border-radius:12px;background:#FFF;box-shadow:0 30px 100px rgba(0,0,0,.34)}}
+  .decision-card h2{{font-size:22px;margin-bottom:7px}}.decision-card p{{color:#65717A;font-size:13px;margin-bottom:15px}}
+  .decision-card textarea{{width:100%;min-height:130px;padding:12px;border:1px solid #D8DEE3;border-radius:8px;font:14px/1.6 inherit;resize:vertical}}
+  .decision-summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:15px 0}}
+  .decision-summary div{{padding:12px;border:1px solid #E0E6EB;border-radius:8px;background:#F7F9FA;text-align:center;font-size:12px;color:#66717E}}
+  .decision-summary strong{{display:block;font-size:22px;color:#1D2B34}}
+  .sheet-actions{{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap}}
+  html,body{{height:100%;overflow:hidden}}body{{min-height:0!important;padding-bottom:0!important}}
+  .completion{{position:fixed;inset:0;z-index:120;display:none;place-items:center;padding:24px;background:rgba(7,19,26,.86);backdrop-filter:blur(10px)}}
+  .completion.open{{display:grid}}
+  .completion-card{{width:min(560px,100%);padding:30px;border-radius:12px;background:#FFF;text-align:center;box-shadow:0 30px 100px rgba(0,0,0,.34)}}
+  .completion-card h2{{font-family:inherit;font-size:27px;margin-bottom:8px}}.completion-card p{{color:#64717A;margin-bottom:18px}}
+  @media(max-width:1100px){{.workspace{{grid-template-columns:92px minmax(0,1fr)}}.review-grid{{grid-template-columns:1fr}}.preview-panel,.qa-panel{{overflow:visible}}.container,.page-body{{overflow:auto}}.review-dock{{padding-left:116px}}}}
 </style>
 </head>
 <body>
 <div class="header">
   <h1>视觉审阅: {project} — {batch_label}</h1>
-  <div class="creator">小红书 @阿祖不看 TVC</div>
+  <div class="creator"><span class="creator-mark">PH</span><span class="creator-copy"><strong>Planner's PPT Hell</strong><small>@阿祖不看TVC</small></span></div>
   <div class="status-bar">
     <span class="pass">页面: {count_pass}</span>
     <span class="warn">设计建议: {count_warn}</span>
@@ -170,19 +247,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </aside>
   <main class="container" id="container">{global_alerts}</main>
 </div>
-<div class="submit-area">
-  <div style="width:min(920px,calc(100vw - 48px));text-align:left">
-    <label for="globalFeedback" style="display:block;font-weight:800;margin-bottom:8px">整套统一反馈</label>
-    <textarea id="globalFeedback" placeholder="填写适用于全部页面的统一修改要求；留空则只提交各页反馈。" style="width:100%;min-height:110px;padding:12px;border:1px solid #D9E0E8;border-radius:10px;font:inherit;resize:vertical"></textarea>
-  </div>
-  <button class="submit-btn green" onclick="submitFeedback()">提交批次反馈</button>
-  <button class="submit-btn" onclick="approveAll()">全部通过并继续</button>
-  <div style="margin-top:12px">
-    <!-- approval key removed — structural constraints prevent model from skipping review -->
-  </div>
-  <p style="margin-top:12px;font-size:14px;color:#999">请使用本地审阅服务器提交反馈，不要直接打开 file:// HTML。</p>
+<div class="review-dock" aria-label="视觉审阅导航">
+  <div class="dock-group"><button class="dock-btn" id="prevPage" type="button">← 上一页</button><button class="dock-btn" id="nextPage" type="button">下一页 →</button></div>
+  <div class="dock-progress" id="dockProgress">01 / {page_count}</div>
+  <div class="dock-group end"><button class="dock-btn warn" type="button" onclick="reviseCurrent()">标记修改</button><button class="dock-btn primary" type="button" onclick="approveCurrentAndNext()">批准当前页</button><button class="dock-btn danger" type="button" onclick="openReviewSubmit()">提交本轮审阅</button></div>
 </div>
+<div class="decision-sheet" id="reviewSubmitSheet" role="dialog" aria-modal="true"><div class="decision-card"><h2>提交本轮视觉审阅</h2><p>逐页决定和整套反馈在这里一次提交。已标记修改的页面不会被批量批准覆盖。</p><label for="globalFeedback" style="display:block;margin-bottom:7px;font-size:12px;font-weight:900;color:#53616B">整套统一反馈 <span style="font-weight:600;color:#98A2A9">· 可选</span></label><textarea id="globalFeedback" placeholder="只填写跨页面都适用的视觉要求；逐页问题请留在对应页面。"></textarea><div class="decision-summary" id="decisionSummary"></div><div class="sheet-actions"><button class="dock-btn" type="button" onclick="toggleSheet('reviewSubmitSheet',false)">继续审阅</button><button class="dock-btn" type="button" onclick="submitFeedback(false)">提交已有决定</button><button class="dock-btn primary" type="button" onclick="submitFeedback(true)">批准未处理页并提交</button></div></div></div>
 <div class="toast" id="toast"></div>
+<div class="completion" id="completion" role="dialog" aria-modal="true"><div class="completion-card"><h2>视觉反馈已保存</h2><p>请回到 Codex 问答框发送「已完成」，模型会读取逐页判断和整套反馈后继续。</p><button class="dock-btn primary" id="copyCompleted" type="button">复制「已完成」</button><button class="dock-btn" id="closeCompletion" type="button">继续查看</button></div></div>
 <footer class="project-credit">
   Planner's PPT Hell © 2026 · 小红书 @阿祖不看 TVC · 网站 <a href="https://demyth.info" target="_blank" rel="noreferrer">demyth.info</a>
 </footer>
@@ -198,6 +270,10 @@ var hasSelfReview = {has_self_review};
 var visionAvailable = {vision_available};
 var visionUnavailableReason = {vision_unavailable_reason_json};
 var hasValidation = {has_validation};
+var activePageIndex = 0;
+var pageDecisions = {{}};
+var pageAnnotations = {{}};
+var annotationModeIndex = null;
 
 function escapeHtml(s) {{
   if (!s) return '';
@@ -404,13 +480,18 @@ function renderPages() {{
 
     var card = document.createElement('div');
     card.id = 'page-' + pageKey;
-    card.className = 'page-review ' + borderClass;
+    card.className = 'page-review ' + borderClass + (idx===0 ? ' active' : '');
+    card.dataset.pageIndex=idx;
 
     if (nav) {{
       var link = document.createElement('a');
-      link.className = 'nav-item';
+      link.className = 'nav-item'+(borderClass==='fail'?' machine-fail':'');
       link.href = '#page-' + pageKey;
-      link.innerHTML = '<span class="nav-dot '+borderClass+'"></span><span>第'+(idx+1)+'页</span>';
+      link.dataset.pageIndex=idx;
+      var thumb=p.png_path?'<img class="nav-thumb" src="'+assetUrl(p.png_path)+'" alt="">':'<span class="nav-thumb"></span>';
+      link.title = String(idx+1).padStart(2,'0')+' · '+(p.page_title||pageKey);
+      link.innerHTML = thumb+'<span class="nav-copy">'+String(idx+1).padStart(2,'0')+'</span><span class="nav-state"></span>';
+      link.addEventListener('click',function(event){{event.preventDefault();setActivePage(idx);}});
       nav.appendChild(link);
     }}
 
@@ -436,10 +517,10 @@ function renderPages() {{
         var versionBase = '_internal/05_review/versions/' + pageKey + '/';
         html += '<div class="section-label">版本对比</div><div class="grid-2col">';
         html += '<div class="preview-box"><div class="vlabel">v'+prev.version+' ('+prev.created_at+')</div><img src="'+assetUrl(versionBase+prev.png)+'" alt="v'+prev.version+'"></div>';
-        html += '<div class="preview-box"><div class="vlabel">v'+latest.version+' ('+latest.created_at+') — 当前版本</div><img src="'+assetUrl(versionBase+latest.png)+'" alt="v'+latest.version+'"></div>';
+        html += '<div class="preview-box"><div class="vlabel">v'+latest.version+' ('+latest.created_at+') — 当前版本</div><div class="annotation-stage"><img src="'+assetUrl(versionBase+latest.png)+'" alt="v'+latest.version+'"><div class="annotation-layer" data-annotation-layer="'+idx+'"></div></div></div>';
         html += '</div>';
       }} else {{
-        html += '<div class="section-label">预览</div><div class="preview-row"><div class="preview-box"><img src="'+assetUrl(pngPath)+'" alt="页面预览"></div></div>';
+        html += '<div class="section-label">预览</div><div class="preview-row"><div class="preview-box"><div class="annotation-stage"><img src="'+assetUrl(pngPath)+'" alt="页面预览"><div class="annotation-layer" data-annotation-layer="'+idx+'"></div></div></div></div>';
       }}
     }}
     html += '</section><section class="qa-panel">';
@@ -503,21 +584,116 @@ function renderPages() {{
     html += '<div class="section-label">设计建议（勾选表示下一轮请修改）</div>';
     html += renderReviewActions(pageKey, idx, reviewActions);
 
+    // Region feedback: draw on the current slide, then describe the issue.
+    html += '<div class="region-feedback"><div class="region-feedback-head"><strong>区域反馈</strong><button class="region-btn" type="button" onclick="beginAnnotation('+idx+')">框选页面问题</button></div>';
+    html += '<div class="region-hint">在左侧页面上拖出框，然后说明这个位置要改什么。坐标会一起交给修改任务。</div><div data-region-list="'+idx+'"></div></div>';
+
     // Free-text feedback
     html += '<div class="action-zone"><div class="section-label">您的反馈</div><div class="feedback-text">';
     html += '<textarea name="feedback_'+idx+'" placeholder="对此页的反馈意见..."></textarea></div>';
 
-    // Approve
-    html += '<label class="approve-row"><input type="checkbox" name="approve_'+idx+'" value="1"> <strong>确认此页通过审阅</strong></label>';
+    // Approval has one action surface: the bottom dock. Keep only hidden state here.
+    html += '<input type="checkbox" name="approve_'+idx+'" value="1" hidden>';
+    html += '<div class="approval-status" data-approval-status="'+idx+'">本页尚未批准 · 请使用底部“批准当前页”</div>';
     html += '</div>';
     html += '</section></div></div>'; // qa-panel, review-grid, page-body
     html += renderRevisionNotes(pageKey);
     card.innerHTML = html;
     container.appendChild(card);
   }});
+  document.querySelectorAll('[name^="feedback_"]').forEach(function(input){{input.addEventListener('input',function(){{markVisualPageChanged(Number(input.name.split('_')[1]));}});}});
+  document.querySelectorAll('[name^="action_"]').forEach(function(input){{input.addEventListener('change',function(){{markVisualPageChanged(Number(input.name.split('_')[1]));}});}});
+  bindAnnotationLayers();
+  var requestedKey=String(location.hash||'').replace(/^#page-/,'');
+  var requestedIndex=pages.findIndex(function(item,index){{return (item.page_key||('page_'+String(index+1).padStart(2,'0')))===requestedKey;}});
+  setActivePage(requestedIndex>=0?requestedIndex:0);
 }}
 
-function submitFeedback() {{
+function annotationList(index) {{
+  if (!Array.isArray(pageAnnotations[index])) pageAnnotations[index]=[];
+  return pageAnnotations[index];
+}}
+
+function markVisualPageChanged(index) {{
+  pageDecisions[index]='revise';
+  var approve=document.getElementsByName('approve_'+index)[0];
+  if(approve) approve.checked=false;
+  var nav=document.querySelector('.nav-item[data-page-index="'+index+'"]');
+  if(nav){{nav.classList.add('changed');nav.classList.remove('reviewed');}}
+  updateApprovalStatus(index);
+}}
+
+function updateApprovalStatus(index){{
+  var approve=document.getElementsByName('approve_'+index)[0],status=document.querySelector('[data-approval-status="'+index+'"]');
+  if(!status) return;
+  var decision=pageDecisions[index]||'unreviewed',approved=decision==='approved';
+  status.classList.toggle('approved',approved);
+  status.textContent=approved?'本页已批准':(decision==='revise'?'本页已标记修改 · 将进入下一轮修订':'本页尚未处理');
+}}
+
+function pageHasVisualRequests(index){{
+  var feedback=(document.getElementsByName('feedback_'+index)[0]||{{}}).value||'';
+  var actions=Array.from(document.getElementsByName('action_'+index)||[]).some(function(item){{return item.checked;}});
+  return Boolean(feedback.trim()||actions||annotationList(index).length);
+}}
+
+function refreshVisualDecision(index){{
+  if(pageHasVisualRequests(index))pageDecisions[index]='revise';
+  var nav=document.querySelector('.nav-item[data-page-index="'+index+'"]');
+  if(nav){{nav.classList.toggle('changed',pageDecisions[index]==='revise');nav.classList.toggle('reviewed',pageDecisions[index]==='approved');}}
+  var approve=document.getElementsByName('approve_'+index)[0];if(approve)approve.checked=pageDecisions[index]==='approved';updateApprovalStatus(index);
+}}
+
+function renderAnnotations(index) {{
+  var layer=document.querySelector('[data-annotation-layer="'+index+'"]');
+  if(!layer) return;
+  layer.innerHTML=annotationList(index).map(function(item,i){{
+    return '<div class="annotation-rect" data-number="'+(i+1)+'" style="left:'+(item.x*100)+'%;top:'+(item.y*100)+'%;width:'+(item.w*100)+'%;height:'+(item.h*100)+'%"></div>';
+  }}).join('');
+}}
+
+function renderRegionFeedback(index, focusLast) {{
+  var host=document.querySelector('[data-region-list="'+index+'"]');
+  if(!host) return;
+  var items=annotationList(index);
+  host.innerHTML=items.map(function(item,i){{
+    var region='x '+Math.round(item.x*100)+'% · y '+Math.round(item.y*100)+'% · '+Math.round(item.w*100)+'×'+Math.round(item.h*100)+'%';
+    return '<div class="region-item"><label>标注 '+(i+1)+' · '+region+'</label><textarea data-annotation-text="'+index+':'+i+'" placeholder="说明这个位置的问题和期望修改…">'+escapeHtml(item.text||'')+'</textarea><div class="region-item-actions"><button class="region-delete" type="button" data-annotation-delete="'+index+':'+i+'">删除这个标注</button></div></div>';
+  }}).join('');
+  host.querySelectorAll('[data-annotation-text]').forEach(function(field){{field.addEventListener('input',function(){{var bits=field.dataset.annotationText.split(':').map(Number);annotationList(bits[0])[bits[1]].text=field.value;markVisualPageChanged(bits[0]);}});}});
+  host.querySelectorAll('[data-annotation-delete]').forEach(function(button){{button.addEventListener('click',function(){{var bits=button.dataset.annotationDelete.split(':').map(Number);annotationList(bits[0]).splice(bits[1],1);renderAnnotations(bits[0]);renderRegionFeedback(bits[0],false);markVisualPageChanged(bits[0]);}});}});
+  if(focusLast){{var fields=host.querySelectorAll('textarea');var field=fields[fields.length-1];if(field){{field.focus();field.scrollIntoView({{block:'nearest'}});}}}}
+}}
+
+function beginAnnotation(index) {{
+  setActivePage(index);
+  document.querySelectorAll('.annotation-layer').forEach(function(layer){{layer.classList.remove('annotating');}});
+  var layer=document.querySelector('[data-annotation-layer="'+index+'"]');
+  if(!layer) return;
+  annotationModeIndex=index;
+  layer.classList.add('annotating');
+  toast.textContent='在页面上拖出要反馈的范围';toast.className='toast show';
+  setTimeout(function(){{toast.className='toast';}},2200);
+}}
+
+function bindAnnotationLayers() {{
+  document.querySelectorAll('[data-annotation-layer]').forEach(function(layer){{
+    var start=null,draft=null,index=Number(layer.dataset.annotationLayer);
+    function point(event){{var rect=layer.getBoundingClientRect();return {{x:Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),y:Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))}};}}
+    layer.addEventListener('pointerdown',function(event){{if(annotationModeIndex!==index)return;event.preventDefault();layer.setPointerCapture(event.pointerId);start=point(event);draft=document.createElement('div');draft.className='annotation-rect';draft.dataset.number=String(annotationList(index).length+1);layer.appendChild(draft);}});
+    layer.addEventListener('pointermove',function(event){{if(!start||!draft)return;var p=point(event),x=Math.min(start.x,p.x),y=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);draft.style.left=(x*100)+'%';draft.style.top=(y*100)+'%';draft.style.width=(w*100)+'%';draft.style.height=(h*100)+'%';}});
+    layer.addEventListener('pointerup',function(event){{if(!start)return;var p=point(event),item={{x:Math.min(start.x,p.x),y:Math.min(start.y,p.y),w:Math.abs(p.x-start.x),h:Math.abs(p.y-start.y),text:''}};start=null;draft=null;layer.classList.remove('annotating');annotationModeIndex=null;if(item.w<.015||item.h<.015){{renderAnnotations(index);return;}}annotationList(index).push(item);renderAnnotations(index);renderRegionFeedback(index,true);markVisualPageChanged(index);}});
+    renderAnnotations(index);renderRegionFeedback(index,false);
+  }});
+}}
+
+function decisionCounts(){{var counts={{approved:0,revise:0,unreviewed:0}};pages.forEach(function(_,idx){{counts[pageDecisions[idx]||'unreviewed']+=1;}});return counts;}}
+function toggleSheet(id,open){{var sheet=document.getElementById(id);if(sheet)sheet.classList.toggle('open',Boolean(open));}}
+function openReviewSubmit(){{var c=decisionCounts(),host=document.getElementById('decisionSummary');if(host)host.innerHTML='<div><strong>'+c.approved+'</strong>已批准</div><div><strong>'+c.revise+'</strong>待修改</div><div><strong>'+c.unreviewed+'</strong>未处理</div>';toggleSheet('reviewSubmitSheet',true);}}
+
+function submitFeedback(approveRemaining) {{
+  if(approveRemaining)pages.forEach(function(_,idx){{if((pageDecisions[idx]||'unreviewed')==='unreviewed'&&!pageHasBlockingIssues((pages[idx]||{{}}).page_key||('page_'+String(idx+1).padStart(2,'0'))))pageDecisions[idx]='approved';refreshVisualDecision(idx);}});
+  var counts=decisionCounts();if(counts.approved+counts.revise===0){{toast.textContent='还没有任何逐页决定，不能提交空审阅。';toast.className='toast show';setTimeout(function(){{toast.className='toast';}},4000);return;}}
   var payload = {{phase:'visual_review', pages:{{}}, global_feedback:'', all_approved: false}};
   payload.global_feedback = (document.getElementById('globalFeedback')||{{}}).value||'';
   pages.forEach(function(p, idx) {{
@@ -536,18 +712,29 @@ function submitFeedback() {{
         }}
       }}
     }});
-    var approved = (document.getElementsByName('approve_'+idx)[0]||{{}}).checked||false;
+    var annotations=annotationList(idx).map(function(item){{return {{x:Number(item.x.toFixed(4)),y:Number(item.y.toFixed(4)),w:Number(item.w.toFixed(4)),h:Number(item.h.toFixed(4)),text:String(item.text||'').trim()}};}});
+    var incompleteAnnotation=annotations.some(function(item){{return !item.text;}});
     payload.pages[pageKey] = {{
-      approved: approved,
+      approved: pageDecisions[idx]==='approved' && annotations.length===0,
+      decision: pageDecisions[idx]||'unreviewed',
       selected_suggestions: selectedSuggestionIndexes,
       selected_review_actions: selectedActions,
-      custom_feedback: (document.getElementsByName('feedback_'+idx)[0]||{{}}).value||''
+      custom_feedback: (document.getElementsByName('feedback_'+idx)[0]||{{}}).value||'',
+      annotations: annotations,
+      annotation_incomplete: incompleteAnnotation
     }};
   }});
   payload.all_approved = Object.values(payload.pages).every(function(p) {{ return p.approved; }});
   for (var pk in payload.pages) {{
     if (!Object.prototype.hasOwnProperty.call(payload.pages, pk)) continue;
     var pagePayload = payload.pages[pk];
+    if (pagePayload.annotation_incomplete) {{
+      toast.textContent = pk + ' 有尚未说明的区域标注。';
+      toast.className = 'toast show';
+      setTimeout(function(){{ toast.className='toast'; }}, 5000);
+      return;
+    }}
+    delete pagePayload.annotation_incomplete;
     if (pagePayload.approved && pageHasBlockingIssues(pk)) {{
       toast.textContent = pk + ' 仍有阻断项，不能批准。请先修复。';
       toast.className = 'toast show';
@@ -564,14 +751,6 @@ function submitFeedback() {{
   postPayload(payload);
 }}
 
-function approveAll() {{
-  pages.forEach(function(p, idx) {{
-    var cb = document.getElementsByName('approve_'+idx)[0];
-    if(cb) cb.checked = true;
-  }});
-  submitFeedback();
-}}
-
 function postPayload(payload) {{
   var toast = document.getElementById('toast');
   fetch('/review-feedback', {{
@@ -579,6 +758,7 @@ function postPayload(payload) {{
   }}).then(function(r) {{
     toast.textContent = r.ok ? '反馈已提交。' : '提交失败。审阅服务器是否在运行？';
     toast.className = 'toast show';
+    if (r.ok) {{toggleSheet('reviewSubmitSheet',false);document.getElementById('completion').classList.add('open');}}
     setTimeout(function(){{ toast.className='toast'; }}, 4000);
   }}).catch(function() {{
     toast.textContent = '无法连接服务器。请先启动 review_server.py。';
@@ -589,21 +769,37 @@ function postPayload(payload) {{
 
 renderPages();
 
-function updateHeaderCompactState() {{
-  document.body.classList.toggle('review-scrolled', window.scrollY > 24);
+function setActivePage(index) {{
+  activePageIndex=Math.max(0,Math.min(pages.length-1,Number(index)||0));
+  document.querySelectorAll('.page-review').forEach(function(card){{card.classList.toggle('active',Number(card.dataset.pageIndex)===activePageIndex);}});
+  document.querySelectorAll('.nav-item').forEach(function(item){{item.classList.toggle('active',Number(item.dataset.pageIndex)===activePageIndex);}});
+  var progress=document.getElementById('dockProgress');
+  if(progress) progress.textContent=String(activePageIndex+1).padStart(2,'0')+' / '+String(pages.length).padStart(2,'0');
+  var activeNav=document.querySelector('.nav-item.active');if(activeNav) activeNav.scrollIntoView({{block:'nearest'}});
+  var page=pages[activePageIndex]||{{}};var key=page.page_key||('page_'+String(activePageIndex+1).padStart(2,'0'));history.replaceState(null,'','#page-'+key);
+  document.getElementById('prevPage').disabled=activePageIndex===0;
+  document.getElementById('nextPage').disabled=activePageIndex===pages.length-1;
 }}
-updateHeaderCompactState();
-window.addEventListener('scroll', updateHeaderCompactState, {{passive:true}});
 
-var observer = new IntersectionObserver(function(entries) {{
-  entries.forEach(function(entry) {{
-    if (!entry.isIntersecting) return;
-    document.querySelectorAll('.nav-item').forEach(function(a) {{ a.classList.remove('active'); }});
-    var active = document.querySelector('.nav-item[href="#'+entry.target.id+'"]');
-    if (active) active.classList.add('active');
-  }});
-}}, {{rootMargin:'-35% 0px -55% 0px', threshold:0}});
-document.querySelectorAll('.page-review').forEach(function(card) {{ observer.observe(card); }});
+function approveCurrentAndNext(){{
+  var page=pages[activePageIndex]||{{}}, key=page.page_key||('page_'+String(activePageIndex+1).padStart(2,'0'));
+  if(pageHasBlockingIssues(key)){{toast.textContent='当前页仍有阻断项，不能批准。';toast.className='toast show';setTimeout(function(){{toast.className='toast';}},3500);return;}}
+  if(annotationList(activePageIndex).length){{toast.textContent='当前页已有区域反馈，请作为修改意见提交。';toast.className='toast show';setTimeout(function(){{toast.className='toast';}},3500);return;}}
+  var actions=document.getElementsByName('action_'+activePageIndex);var selected=Array.from(actions).some(function(item){{return item.checked;}});
+  if(selected){{toast.textContent='当前页已勾选修改建议，请取消勾选或作为修改意见提交。';toast.className='toast show';setTimeout(function(){{toast.className='toast';}},3500);return;}}
+  pageDecisions[activePageIndex]='approved';refreshVisualDecision(activePageIndex);
+  if(activePageIndex<pages.length-1) setActivePage(activePageIndex+1);
+}}
+
+function reviseCurrent(){{
+  pageDecisions[activePageIndex]='revise';refreshVisualDecision(activePageIndex);
+  beginAnnotation(activePageIndex);
+}}
+document.getElementById('prevPage').onclick=function(){{setActivePage(activePageIndex-1);}};
+document.getElementById('nextPage').onclick=function(){{setActivePage(activePageIndex+1);}};
+document.getElementById('copyCompleted').onclick=async function(){{try{{await navigator.clipboard.writeText('已完成');this.textContent='已复制';}}catch(error){{window.prompt('复制下面文字并发送给 Codex','已完成');}}}};
+document.getElementById('closeCompletion').onclick=function(){{document.getElementById('completion').classList.remove('open');}};
+document.addEventListener('keydown',function(event){{if(/textarea|input|select/i.test((event.target||{{}}).tagName||'')) return;if(event.key==='ArrowLeft') setActivePage(activePageIndex-1);if(event.key==='ArrowRight') setActivePage(activePageIndex+1);}});
 </script>
 </body>
 </html>"""
@@ -670,19 +866,8 @@ def report_has_error(report):
     return False
 
 
-BLOCKING_WARNING_CODES = {
-    "TEXT_OVERFLOW_MAJOR",
-    "FOOTER_ZONE_INVASION",
-}
-
-
 def report_has_blocking_warning(report):
-    for issue in report.get("issues", []):
-        if not isinstance(issue, dict):
-            continue
-        if issue.get("severity") == "warning" and issue.get("code") in BLOCKING_WARNING_CODES:
-            return True
-    return False
+    return bool(blocking_warning_issues({"reports": [report]}))
 
 
 def main():
@@ -906,6 +1091,7 @@ def main():
         count_pass=count_pass,
         count_warn=count_warn,
         count_fail=count_fail,
+        page_count=len(pages),
         pages_json=json.dumps(pages, ensure_ascii=False),
         validation_json=json.dumps(val_lookup, ensure_ascii=False),
         self_review_json=json.dumps(sr_lookup, ensure_ascii=False),

@@ -1,8 +1,10 @@
 import argparse
+import base64
 import hashlib
 import json
 import mimetypes
 import os
+import re
 import socket
 import sys
 import tempfile
@@ -67,6 +69,66 @@ def validate_template_decisions(data, expected_layouts):
     }
 
 
+def validate_layout_feedback_assets(project_root, data, expected_pages):
+    """Validate the multi-image UI handoff before it becomes revision input."""
+    project_root = Path(project_root).resolve()
+    try:
+        plan = json.loads(
+            (project_root / "_internal" / "01_layout_plan" / "layout_plan.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        plan = {}
+    expected_slots = {}
+    for page in plan.get("pages", []):
+        if not isinstance(page, dict) or not page.get("page_key"):
+            continue
+        assets = page.get("visual_asset_strategy", {}).get("assets", [])
+        expected_slots[page["page_key"]] = {
+            str(item.get("slot_label", "")).strip()
+            for item in assets if isinstance(item, dict) and str(item.get("slot_label", "")).strip()
+        }
+    pages = data.get("pages", {})
+    allowed_anchors = {
+        "center", "top", "bottom", "left", "right",
+        "top left", "top right", "bottom left", "bottom right",
+    }
+    for page_key in sorted(expected_pages):
+        page = pages.get(page_key, {})
+        uploads = page.get("asset_uploads", []) if isinstance(page, dict) else None
+        if not isinstance(uploads, list):
+            return f"{page_key}.asset_uploads must be an array"
+        labels = [str(item.get("slot_label", "")).strip() for item in uploads if isinstance(item, dict)]
+        if len(labels) != len(uploads) or any(not label for label in labels) or len(set(labels)) != len(labels):
+            return f"{page_key}.asset_uploads requires one unique non-empty slot_label per image"
+        declared = expected_slots.get(page_key, set())
+        existing_labels = {
+            str(item.get("slot_label", "")).strip() for item in uploads
+            if isinstance(item, dict) and item.get("is_new") is not True
+        }
+        if declared and existing_labels != declared:
+            return f"{page_key}.asset_uploads must preserve every declared layout image slot"
+        for item in uploads:
+            label = str(item.get("slot_label", "")).strip()
+            is_new = item.get("is_new") is True or item.get("operation") == "add"
+            if label not in declared and not is_new:
+                return f"{page_key}.{label} is an undeclared slot and must use operation=add"
+            if is_new and (item.get("operation") != "add" or item.get("changed") is not True):
+                return f"{page_key}.{label} new image slots require operation=add and changed=true"
+            if item.get("fit") not in {"contain", "cover"}:
+                return f"{page_key}.{item.get('slot_label')}.fit must be contain or cover"
+            ratio = str(item.get("crop_ratio", "")).strip()
+            if ratio != "original" and not re.fullmatch(r"[1-9]\d*:[1-9]\d*", ratio):
+                return f"{page_key}.{item.get('slot_label')}.crop_ratio must be original or W:H"
+            if str(item.get("crop_anchor", "")).strip() not in allowed_anchors:
+                return f"{page_key}.{item.get('slot_label')}.crop_anchor is invalid"
+            if item.get("changed") is True:
+                rel = str(item.get("path", "")).strip()
+                target = (project_root / rel).resolve() if rel else None
+                if not target or project_root not in target.parents or not target.is_file():
+                    return f"{page_key}.{item.get('slot_label')} changed image path is missing or outside the project"
+    return ""
+
+
 class ReviewHandler(SimpleHTTPRequestHandler):
     project_root: Path = None
     session_id: str = ""
@@ -102,8 +164,8 @@ class ReviewHandler(SimpleHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
         except ValueError:
             raise ValueError("invalid Content-Length")
-        if length < 0 or length > 1024 * 1024:
-            raise ValueError("payload exceeds 1 MiB")
+        if length < 0 or length > 20 * 1024 * 1024:
+            raise ValueError("payload exceeds 20 MiB")
         return self.rfile.read(length) if length else b""
 
     def _sha256_file(self, rel_path):
@@ -182,6 +244,10 @@ class ReviewHandler(SimpleHTTPRequestHandler):
             "png_sha256": self._png_hashes() if route == "/review-feedback" else self._template_png_hashes() if route == "/template-feedback" else {},
             "template_package_sha256": self._template_package_hashes() if route == "/template-feedback" else {},
         }
+        if route == "/layout-feedback":
+            data["provenance"]["layout_plan_sha256"] = self._sha256_file(
+                "_internal/01_layout_plan/layout_plan.json"
+            )
         return data
 
     def do_GET(self):
@@ -202,7 +268,9 @@ class ReviewHandler(SimpleHTTPRequestHandler):
         elif (path.startswith("/_internal/03_png_preview/")
               or path.startswith("/_internal/05_review/versions/")
               or path.startswith("/_internal/00_project/template_visuals/")
-              or path.startswith("/_internal/00_project/template_media/")):
+              or path.startswith("/_internal/00_project/template_media/")
+              or path.startswith("/_internal/00_project/source/assets/")
+              or path.startswith("/_internal/01_layout_plan/uploads/")):
             fp = (self.project_root / path.lstrip("/")).resolve()
             if self.project_root not in fp.parents:
                 self._json_response({"error": "Path outside project"}, 403)
@@ -242,7 +310,43 @@ class ReviewHandler(SimpleHTTPRequestHandler):
             self._json_response({"error": "JSON payload must be an object"}, 400)
             return
 
-        if path == "/template-feedback":
+        if path == "/layout-asset":
+            page_key = str(data.get("page_key", "")).strip()
+            slot_label = str(data.get("slot_label", "")).strip()
+            filename = Path(str(data.get("filename", "image"))).name
+            encoded = str(data.get("data_base64", ""))
+            if page_key not in self._expected_page_keys() or not slot_label:
+                self._json_response({"error": "valid page_key and slot_label are required"}, 400)
+                return
+            suffix = Path(filename).suffix.lower()
+            if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+                self._json_response({"error": "only PNG, JPEG, WEBP and GIF images are accepted"}, 400)
+                return
+            try:
+                payload = base64.b64decode(encoded, validate=True)
+            except (ValueError, TypeError):
+                self._json_response({"error": "invalid base64 image"}, 400)
+                return
+            if not payload or len(payload) > 12 * 1024 * 1024:
+                self._json_response({"error": "image must be between 1 byte and 12 MiB"}, 400)
+                return
+            safe_slot = "".join(char if char.isalnum() or char in "-_" else "_" for char in slot_label)[:64]
+            output = (
+                self.project_root / "_internal" / "01_layout_plan" / "uploads" / page_key
+                / f"{safe_slot}-{uuid.uuid4().hex[:10]}{suffix}"
+            )
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(payload)
+            rel = output.relative_to(self.project_root).as_posix()
+            self._json_response({
+                "status": "ok",
+                "path": rel,
+                "url": f"/{rel}",
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "slot_label": slot_label,
+            })
+
+        elif path == "/template-feedback":
             manifest = {}
             try:
                 manifest = json.loads((self.project_root / "_internal" / "00_project" / "page_manifest.json").read_text(encoding="utf-8"))
@@ -302,6 +406,10 @@ class ReviewHandler(SimpleHTTPRequestHandler):
             supplied = set((data.get("pages") or {}).keys()) if isinstance(data, dict) else set()
             if supplied != expected:
                 self._json_response({"error": "layout feedback page set must exactly match the manifest"}, 400)
+                return
+            asset_error = validate_layout_feedback_assets(self.project_root, data, expected)
+            if asset_error:
+                self._json_response({"error": asset_error}, 400)
                 return
             data["updated_at"] = datetime.now(timezone.utc).isoformat()
             data = self._with_provenance(data, "/layout-feedback")

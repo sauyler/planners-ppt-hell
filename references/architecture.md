@@ -16,9 +16,12 @@
 |---|---|
 | 项目状态与运行时间 | `flow_events.jsonl`机器事件 |
 | 页面完整事实 | `page_content.json` |
+| 源文稿与图片资产 | `_internal/00_project/source/source.md`与`source_assets.json` |
 | 上屏文案、结构、wireframe、素材角色和canvas选择 | 已批准`layout_plan.json` |
 | 模板视觉身份与页面边界 | 单一`template_registry.json`和已批准canvas |
 | 人工决定 | Server写入且hash绑定的feedback JSON |
+
+Layout Review Server可把用户上传图片写入`_internal/01_layout_plan/uploads/`，并只通过`layout_feedback.json`把路径、slot和裁剪决定交给Layout revision。上传不是第二asset registry。
 
 不保存`agent_result.json`、Agent ID、affinity、parallel/serial状态或对话式恢复信息。
 
@@ -44,7 +47,7 @@ Template canvas只固定身份与边界，replace layer为空。Layout精确选�
 ## 人工门禁
 
 - Template：每Layout通过/舍弃/返修 + 单独反馈；整体区只有提交批次反馈/全部通过 + 整体反馈 + 模板名。
-- Layout：全deck结构、final copy、wireframe和容量审阅。
+- Layout：全deck结构、final copy、wireframe、容量，以及图片上传/替换和非变形裁剪选择。
 - Visual：全deck PNG审阅。
 
 批准绑定当前HTML及相关PNG/SVG/registry。任何证据变化使旧批准失效。Controller和模型均不得写批准。

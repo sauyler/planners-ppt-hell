@@ -41,6 +41,7 @@ from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
 from pptx.enum.dml import MSO_LINE
 from pptx.enum.text import PP_ALIGN
 from pptx.oxml.ns import qn
+from pptx.parts.image import Image as PptxImage
 from lxml import etree
 
 # ── 画布参数 ──
@@ -468,6 +469,72 @@ def add_missing_image_placeholder(slide, x, y, w, h, href):
     run.font.color.rgb = RGBColor(153, 153, 153)
 
 
+def _parse_axis_aligned_transform(transform):
+    """Compose SVG translate/scale operations without losing nested offsets."""
+    sx = sy = 1.0
+    ox = oy = 0.0
+    for name, raw_args in re.findall(r"(translate|scale)\s*\(([^)]*)\)", transform or ""):
+        values = [float(value) for value in re.findall(r"[-+]?(?:\d*\.)?\d+(?:[eE][-+]?\d+)?", raw_args)]
+        if not values:
+            continue
+        if name == "translate":
+            tx = values[0]
+            ty = values[1] if len(values) > 1 else 0.0
+            ox += sx * tx
+            oy += sy * ty
+        else:
+            sx *= values[0]
+            sy *= values[1] if len(values) > 1 else values[0]
+    return ox, oy, sx, sy
+
+
+def _image_anchor_fractions(preserve_aspect_ratio):
+    token = (preserve_aspect_ratio or "xMidYMid meet").split()[0]
+    horizontal = 0.0 if "xMin" in token else 1.0 if "xMax" in token else 0.5
+    vertical = 0.0 if "YMin" in token else 1.0 if "YMax" in token else 0.5
+    return horizontal, vertical
+
+
+def add_fitted_picture(slide, image_path, x, y, w, h, preserve_aspect_ratio):
+    """Insert an image using SVG meet/slice semantics without bitmap distortion."""
+    preserve = (preserve_aspect_ratio or "xMidYMid meet").strip()
+    mode = "slice" if "slice" in preserve else "meet"
+    image = PptxImage.from_file(image_path)
+    image_w, image_h = image.size
+    if not image_w or not image_h:
+        return slide.shapes.add_picture(image_path, Inches(x), Inches(y), width=Inches(w))
+    image_ratio = image_w / image_h
+    box_ratio = w / h
+    anchor_x, anchor_y = _image_anchor_fractions(preserve)
+
+    if mode == "meet":
+        if image_ratio >= box_ratio:
+            fitted_w = w
+            fitted_h = w / image_ratio
+        else:
+            fitted_h = h
+            fitted_w = h * image_ratio
+        fitted_x = x + (w - fitted_w) * anchor_x
+        fitted_y = y + (h - fitted_h) * anchor_y
+        return slide.shapes.add_picture(
+            image_path, Inches(fitted_x), Inches(fitted_y),
+            width=Inches(fitted_w), height=Inches(fitted_h),
+        )
+
+    pic = slide.shapes.add_picture(
+        image_path, Inches(x), Inches(y), width=Inches(w), height=Inches(h)
+    )
+    if image_ratio > box_ratio:
+        total_crop = 1.0 - box_ratio / image_ratio
+        pic.crop_left = total_crop * anchor_x
+        pic.crop_right = total_crop * (1.0 - anchor_x)
+    elif image_ratio < box_ratio:
+        total_crop = 1.0 - image_ratio / box_ratio
+        pic.crop_top = total_crop * anchor_y
+        pic.crop_bottom = total_crop * (1.0 - anchor_y)
+    return pic
+
+
 # ═══════════════════════════════════════
 # SVG <path> 解析器 (v5.0)
 # ═══════════════════════════════════════
@@ -504,8 +571,8 @@ def _parse_path_to_points(d, offset_x=0, offset_y=0, scale_x=1.0, scale_y=1.0):
 
     def add_point(x, y):
         nonlocal cx, cy
-        ax = (x + offset_x) * scale_x
-        ay = (y + offset_y) * scale_y
+        ax = offset_x + x * scale_x
+        ay = offset_y + y * scale_y
         current_points.append((ax, ay))
         cx, cy = x, y
 
@@ -535,27 +602,62 @@ def _parse_path_to_points(d, offset_x=0, offset_y=0, scale_x=1.0, scale_y=1.0):
             pts.append((px, py))
         return pts
 
-    def arc_to_points(rx_a, ry_a, x_rot, large_arc, sweep, ex, ey, steps=12):
-        """椭圆弧折线近似（简化版：用直线连接起终点的弧段）。"""
-        # 简化实现：用二次贝塞尔近似弧
-        mx = (cx + ex) / 2
-        my = (cy + ey) / 2
-        # 粗略控制点偏移
-        dx = ex - cx
-        dy = ey - cy
-        dist = math.sqrt(dx*dx + dy*dy)
-        if dist < 0.01:
+    def arc_to_points(rx_a, ry_a, x_rot, large_arc, sweep, ex, ey):
+        """Approximate an SVG elliptical arc using the W3C endpoint algorithm."""
+        if abs(ex - cx) < 1e-9 and abs(ey - cy) < 1e-9:
             return [(ex, ey)]
-        # 使用弧的半径来估算弯曲程度
-        bulge = min(rx_a, ry_a) * 0.5
-        if sweep:
-            bulge = -bulge
-        # 法线方向
-        nx = -dy / dist * bulge
-        ny = dx / dist * bulge
-        ctrl_x = mx + nx
-        ctrl_y = my + ny
-        return bezier_quad(cx, cy, ctrl_x, ctrl_y, ex, ey, steps)
+        rx = abs(rx_a)
+        ry = abs(ry_a)
+        if rx < 1e-9 or ry < 1e-9:
+            return [(ex, ey)]
+        phi = math.radians(x_rot % 360.0)
+        cos_phi, sin_phi = math.cos(phi), math.sin(phi)
+        dx2, dy2 = (cx - ex) / 2.0, (cy - ey) / 2.0
+        x1p = cos_phi * dx2 + sin_phi * dy2
+        y1p = -sin_phi * dx2 + cos_phi * dy2
+        radii_scale = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry)
+        if radii_scale > 1.0:
+            scale = math.sqrt(radii_scale)
+            rx *= scale
+            ry *= scale
+        numerator = max(
+            0.0,
+            rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p,
+        )
+        denominator = rx * rx * y1p * y1p + ry * ry * x1p * x1p
+        coefficient = 0.0 if denominator < 1e-12 else math.sqrt(numerator / denominator)
+        if bool(large_arc) == bool(sweep):
+            coefficient = -coefficient
+        cxp = coefficient * (rx * y1p / ry)
+        cyp = coefficient * (-ry * x1p / rx)
+        center_x = cos_phi * cxp - sin_phi * cyp + (cx + ex) / 2.0
+        center_y = sin_phi * cxp + cos_phi * cyp + (cy + ey) / 2.0
+
+        def vector_angle(ux, uy, vx, vy):
+            dot = ux * vx + uy * vy
+            length = math.hypot(ux, uy) * math.hypot(vx, vy)
+            value = max(-1.0, min(1.0, dot / length)) if length else 1.0
+            angle = math.acos(value)
+            return -angle if ux * vy - uy * vx < 0 else angle
+
+        ux, uy = (x1p - cxp) / rx, (y1p - cyp) / ry
+        vx, vy = (-x1p - cxp) / rx, (-y1p - cyp) / ry
+        theta = vector_angle(1.0, 0.0, ux, uy)
+        delta = vector_angle(ux, uy, vx, vy)
+        if not sweep and delta > 0:
+            delta -= 2 * math.pi
+        elif sweep and delta < 0:
+            delta += 2 * math.pi
+        steps = max(8, int(math.ceil(abs(delta) / (math.pi / 32))))
+        points = []
+        for step in range(1, steps + 1):
+            angle = theta + delta * step / steps
+            cos_angle, sin_angle = math.cos(angle), math.sin(angle)
+            px = center_x + cos_phi * rx * cos_angle - sin_phi * ry * sin_angle
+            py = center_y + sin_phi * rx * cos_angle + cos_phi * ry * sin_angle
+            points.append((px, py))
+        points[-1] = (ex, ey)
+        return points
 
     while i < len(tokens):
         token = tokens[i]
@@ -770,35 +872,13 @@ def add_elements(slide, parent_node, offset_x=0, offset_y=0,
 
         if tag == 'g':
             transform = node.attrib.get('transform', '')
-            dx, dy = 0, 0
-            sx, sy = 1.0, 1.0
             unsupported = []
             for name in ('rotate', 'skewX', 'skewY', 'matrix'):
                 if f'{name}(' in transform:
                     unsupported.append(name)
             if unsupported:
                 warn(f"unsupported transform ignored on <g>: {', '.join(unsupported)} in {transform!r}")
-            if 'translate' in transform:
-                try:
-                    m = re.search(r'translate\(\s*([-\d.]+)[\s,]+([-\d.]+)\s*\)', transform)
-                    if m:
-                        dx = float(m.group(1))
-                        dy = float(m.group(2))
-                    else:
-                        m = re.search(r'translate\(\s*([-\d.]+)\s*\)', transform)
-                        if m:
-                            dx = float(m.group(1))
-                except:
-                    pass
-            # v5.0: 解析 scale()
-            if 'scale' in transform:
-                try:
-                    m = re.search(r'scale\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)', transform)
-                    if m:
-                        sx = float(m.group(1))
-                        sy = float(m.group(2)) if m.group(2) else sx
-                except:
-                    pass
+            local_ox, local_oy, local_sx, local_sy = _parse_axis_aligned_transform(transform)
 
             g_opacity = float(node.attrib.get('opacity', 1.0))
 
@@ -809,27 +889,20 @@ def add_elements(slide, parent_node, offset_x=0, offset_y=0,
                 if val:
                     new_inherited[attr_name] = val
 
-            # 应用 scale 到 dx/dy（scale 影响平移后的位置）
-            new_ox = offset_x + dx
-            new_oy = offset_y + dy
-            new_sx = scale_x * sx
-            new_sy = scale_y * sy
+            new_ox = offset_x + scale_x * local_ox
+            new_oy = offset_y + scale_y * local_oy
+            new_sx = scale_x * local_sx
+            new_sy = scale_y * local_sy
 
             add_elements(slide, node, new_ox, new_oy,
                          parent_opacity * g_opacity, new_inherited,
                          clip_rx_map, new_sx, new_sy)
 
         elif tag == 'rect':
-            raw_x = float(node.attrib.get('x', 0)) + offset_x
-            raw_y = float(node.attrib.get('y', 0)) + offset_y
-            raw_w = float(node.attrib.get('width', 0))
-            raw_h = float(node.attrib.get('height', 0))
-
-            # 应用 scale
-            raw_x *= scale_x
-            raw_y *= scale_y
-            raw_w *= scale_x
-            raw_h *= scale_y
+            raw_x = offset_x + float(node.attrib.get('x', 0)) * scale_x
+            raw_y = offset_y + float(node.attrib.get('y', 0)) * scale_y
+            raw_w = float(node.attrib.get('width', 0)) * scale_x
+            raw_h = float(node.attrib.get('height', 0)) * scale_y
 
             # ── v4.2: 全画布背景 rect → 设为 slide background ──
             # Only opaque full-canvas rects are true slide backgrounds. A later
@@ -884,22 +957,23 @@ def add_elements(slide, parent_node, offset_x=0, offset_y=0,
                     pass
 
         elif tag == 'circle':
-            cx = svg_to_inches((float(node.attrib.get('cx', 0)) + offset_x) * scale_x)
-            cy = svg_to_inches((float(node.attrib.get('cy', 0)) + offset_y) * scale_y)
-            r = svg_to_inches(float(node.attrib.get('r', 0)) * min(scale_x, scale_y))
-            if r <= 0.01:
+            cx = svg_to_inches(offset_x + float(node.attrib.get('cx', 0)) * scale_x)
+            cy = svg_to_inches(offset_y + float(node.attrib.get('cy', 0)) * scale_y)
+            rx = svg_to_inches(float(node.attrib.get('r', 0)) * scale_x)
+            ry = svg_to_inches(float(node.attrib.get('r', 0)) * scale_y)
+            if rx <= 0.01 or ry <= 0.01:
                 continue
             shape = slide.shapes.add_shape(
                 MSO_SHAPE.OVAL,
-                Inches(cx - r), Inches(cy - r),
-                Inches(r * 2), Inches(r * 2)
+                Inches(cx - rx), Inches(cy - ry),
+                Inches(rx * 2), Inches(ry * 2)
             )
             apply_fill_stroke(shape, node, inherited_attrs, parent_opacity)
 
         elif tag == 'ellipse':
             # v5.0: 椭圆支持
-            ecx = svg_to_inches((float(node.attrib.get('cx', 0)) + offset_x) * scale_x)
-            ecy = svg_to_inches((float(node.attrib.get('cy', 0)) + offset_y) * scale_y)
+            ecx = svg_to_inches(offset_x + float(node.attrib.get('cx', 0)) * scale_x)
+            ecy = svg_to_inches(offset_y + float(node.attrib.get('cy', 0)) * scale_y)
             erx = svg_to_inches(float(node.attrib.get('rx', 0)) * scale_x)
             ery = svg_to_inches(float(node.attrib.get('ry', 0)) * scale_y)
             if erx <= 0.01 or ery <= 0.01:
@@ -912,10 +986,10 @@ def add_elements(slide, parent_node, offset_x=0, offset_y=0,
             apply_fill_stroke(shape, node, inherited_attrs, parent_opacity)
 
         elif tag == 'line':
-            x1 = svg_to_inches((float(node.attrib.get('x1', 0)) + offset_x) * scale_x)
-            y1 = svg_to_inches((float(node.attrib.get('y1', 0)) + offset_y) * scale_y)
-            x2 = svg_to_inches((float(node.attrib.get('x2', 0)) + offset_x) * scale_x)
-            y2 = svg_to_inches((float(node.attrib.get('y2', 0)) + offset_y) * scale_y)
+            x1 = svg_to_inches(offset_x + float(node.attrib.get('x1', 0)) * scale_x)
+            y1 = svg_to_inches(offset_y + float(node.attrib.get('y1', 0)) * scale_y)
+            x2 = svg_to_inches(offset_x + float(node.attrib.get('x2', 0)) * scale_x)
+            y2 = svg_to_inches(offset_y + float(node.attrib.get('y2', 0)) * scale_y)
             connector = slide.shapes.add_connector(
                 MSO_CONNECTOR.STRAIGHT,
                 Inches(x1), Inches(y1), Inches(x2), Inches(y2)
@@ -931,8 +1005,8 @@ def add_elements(slide, parent_node, offset_x=0, offset_y=0,
             coords = []
             for i in range(0, len(pts), 2):
                 if i + 1 < len(pts):
-                    px = svg_to_inches((float(pts[i]) + offset_x) * scale_x)
-                    py = svg_to_inches((float(pts[i + 1]) + offset_y) * scale_y)
+                    px = svg_to_inches(offset_x + float(pts[i]) * scale_x)
+                    py = svg_to_inches(offset_y + float(pts[i + 1]) * scale_y)
                     coords.append((Inches(px), Inches(py)))
             if len(coords) >= 3:
                 builder = slide.shapes.build_freeform(coords[0][0], coords[0][1])
@@ -969,8 +1043,8 @@ def add_elements(slide, parent_node, offset_x=0, offset_y=0,
                 apply_fill_stroke(shape, node, inherited_attrs, parent_opacity)
 
         elif tag == 'image':
-            raw_x = (float(node.attrib.get('x', 0)) + offset_x) * scale_x
-            raw_y = (float(node.attrib.get('y', 0)) + offset_y) * scale_y
+            raw_x = offset_x + float(node.attrib.get('x', 0)) * scale_x
+            raw_y = offset_y + float(node.attrib.get('y', 0)) * scale_y
             raw_w = float(node.attrib.get('width', 0)) * scale_x
             raw_h = float(node.attrib.get('height', 0)) * scale_y
             if raw_w <= 0.01 or raw_h <= 0.01:
@@ -991,7 +1065,11 @@ def add_elements(slide, parent_node, offset_x=0, offset_y=0,
                     add_missing_image_placeholder(slide, x, y, w, h, href)
                 continue
 
-            pic = slide.shapes.add_picture(img_path, Inches(x), Inches(y), width=Inches(w), height=Inches(h))
+            preserve = node.attrib.get("preserveAspectRatio", "xMidYMid meet")
+            if preserve.strip() == "none":
+                error(f"image requests preserveAspectRatio='none' and would be stretched: {href}")
+                continue
+            pic = add_fitted_picture(slide, img_path, x, y, w, h, preserve)
             try:
                 remove_shadow(pic)
             except:
@@ -1006,8 +1084,8 @@ def add_elements(slide, parent_node, offset_x=0, offset_y=0,
             coords = []
             for i in range(0, len(pts), 2):
                 if i + 1 < len(pts):
-                    px = svg_to_inches((float(pts[i]) + offset_x) * scale_x)
-                    py = svg_to_inches((float(pts[i + 1]) + offset_y) * scale_y)
+                    px = svg_to_inches(offset_x + float(pts[i]) * scale_x)
+                    py = svg_to_inches(offset_y + float(pts[i + 1]) * scale_y)
                     coords.append((Inches(px), Inches(py)))
             if len(coords) >= 2:
                 builder = slide.shapes.build_freeform(coords[0][0], coords[0][1])
@@ -1059,8 +1137,8 @@ def _add_text_element(slide, node, offset_x, offset_y, inherited_attrs=None,
     if inherited_attrs is None:
         inherited_attrs = {}
 
-    x_svg = (float(node.attrib.get('x', 0)) + offset_x) * scale_x
-    y_svg = (float(node.attrib.get('y', 0)) + offset_y) * scale_y
+    x_svg = offset_x + float(node.attrib.get('x', 0)) * scale_x
+    y_svg = offset_y + float(node.attrib.get('y', 0)) * scale_y
 
     fs_svg = float(node.attrib.get('font-size',
                    inherited_attrs.get('font-size', '20')))

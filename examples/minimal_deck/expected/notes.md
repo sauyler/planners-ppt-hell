@@ -64,7 +64,7 @@ The following intentional contract breaks should cause validation failures:
 16. Submit visual feedback
 17. `pipeline_gate.py visual-approved --batch batch_01` → pass
 18. `pipeline_gate.py export-ready` → pass
-19. `pptflow.py export` → `final_deck.pptx`
+19. `ppt_parent.py export` → `final_deck.pptx`
 
 ## Key landmarks for manual review
 

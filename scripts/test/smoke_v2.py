@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Behavioral smoke suite for the vNext single-agent PPT pipeline."""
 
+import base64
 import hashlib
 import json
 import shutil
@@ -13,7 +14,7 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[2]
 SCRIPTS = SKILL / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from review_server import validate_template_decisions  # noqa: E402
+from review_server import validate_layout_feedback_assets, validate_template_decisions  # noqa: E402
 PIPELINE = SCRIPTS / "orchestrate" / "ppt_pipeline.py"
 TASKS = SCRIPTS / "orchestrate" / "make_stage_task.py"
 FINALIZE = SCRIPTS / "orchestrate" / "finalize_stage.py"
@@ -129,7 +130,8 @@ def test_finalizer_aggregates_failures_and_does_not_complete():
     with tempfile.TemporaryDirectory(prefix="ppt-vnext-smoke-") as raw:
         project, source = new_project(Path(raw))
         run(TASKS, project, "--step", "content")
-        source.write_text("# 输入已改变", encoding="utf-8")
+        normalized_source = project / "_internal/00_project/source/source.md"
+        normalized_source.write_text("# 输入已改变", encoding="utf-8")
         (project / "_internal/01_content/page_content.json").unlink()
         result = run(FINALIZE, project, "--step", "content", ok=False)
         assert result.returncode == 1
@@ -159,6 +161,33 @@ def test_successful_content_finalize_owns_manifest_and_log():
         original = output.read_text(encoding="utf-8")
         output.write_text(original + " ", encoding="utf-8")
         assert stage_completed(project, "content") is False
+
+
+def test_content_cannot_silently_drop_source_images():
+    with tempfile.TemporaryDirectory(prefix="ppt-vnext-smoke-") as raw:
+        base = Path(raw)
+        image = base / "proof.png"
+        image.write_bytes(base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        source = base / "source.md"
+        source.write_text("# 测试\n\n![产品证据](proof.png)\n", encoding="utf-8")
+        project = base / "project"
+        run(SCRIPTS / "init_svg_project.py", project, "--source", source)
+        run(TASKS, project, "--step", "content")
+        content = one_page_content(project, source)
+        write(project / "_internal/01_content/page_content.json", content)
+        blocked = run(FINALIZE, project, "--step", "content", ok=False)
+        payload = read_from_stdout(blocked.stdout)
+        assert "content.source_asset_unassigned" in {item["code"] for item in payload["issues"]}
+        asset_id = read(project / "_internal/00_project/source/source_assets.json")["assets"][0]["asset_id"]
+        content["pages"][0]["source_assets"] = [{
+            "asset_id": asset_id,
+            "role_candidate": "产品证据",
+            "source_context": "原稿产品证据图片",
+        }]
+        write(project / "_internal/01_content/page_content.json", content)
+        assert run(FINALIZE, project, "--step", "content").returncode == 0
 
 
 def test_default_content_base_is_safe():
@@ -287,13 +316,22 @@ def test_svg_revision_uses_frozen_previous_outputs():
         run(SCRIPTS / "template/apply_fidelity_template.py", "--project", project,
             "--page-key", "page_01", "--layout-id", "content_base", "--title", "测试")
         write(project / "_internal/05_review/feedback.json", {
-            "approved": False, "pages": {"page_01": {"custom_feedback": "调整正文层级"}}
+            "approved": False, "pages": {"page_01": {
+                "custom_feedback": "调整正文层级",
+                "annotations": [{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.2, "text": "这个图表向右移"}],
+            }}
         })
         run(TASKS, project, "--step", "svg", "--batch", "batch_01", "--revision")
         task = read(project / "_internal/00_project/tasks/svg_batch_01_task.json")
         assert not (set(task["input_files"]) & set(task["output_files"]))
         frozen = task["constraints"]["previous_svg_by_page"]["page_01"]
         assert frozen.endswith("svg_batch_01_previous/page_01.svg") and (project / frozen).is_file()
+        regions = [item for item in task["constraints"]["required_feedback_items"] if item["scope"] == "page_region"]
+        assert regions == [{
+            "scope": "page_region", "page_key": "page_01",
+            "region": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.2, "coordinate_space": "normalized_slide_0_to_1"},
+            "request": "这个图表向右移",
+        }]
 
 
 def test_wireframe_trace_reports_one_structural_repair():
@@ -338,8 +376,175 @@ def test_svg_completion_short_circuit_is_hash_bound():
 
 def test_layout_review_uses_semantic_renderer():
     source = (SCRIPTS / "generate_layout_html.py").read_text(encoding="utf-8")
-    assert "renderSemanticValue" in source and "flattenVisible" not in source
-    assert "value.every(function(item)" in source and "objectRows" in source
+    assert "renderOnSlideCopy" not in source and "renderSemanticValue" not in source
+    assert "fitWireframeText" in source and "wireframeCopyForLabel" in source
+    assert "data-drop-zone" in source and "crop-option-visual" in source and "asset-tabs" in source
+    assert "switchAssetEditor" in source and "asset_uploads" in source and "data-asset-drop-target" in source
+    assert "layout-details" in source and "asset-workspace-scroll" in source and "fitRenderedWireframeText" in source
+    assert "确认此页版式" not in source and "data-approval-status" in source
+    assert "aspect-ratio:16/9" in source and "padding:0 24px 0 270px" in source
+    assert "approveCurrentAndNext" in source and "setActivePage" in source
+    assert "Songti" not in source and "STSong" not in source and "font-family:serif" not in source.lower()
+    visual = (SCRIPTS / "generate_review_html.py").read_text(encoding="utf-8")
+    assert "nav-thumb" in visual and "review-dock" in visual
+    assert "reviseCurrent" in visual and "setActivePage" in visual
+    assert "data-annotation-layer" in visual and "pageAnnotations" in visual
+    assert "确认此页通过审阅" not in visual and "data-approval-status" in visual
+    assert "Songti" not in visual and "STSong" not in visual and "font-family:serif" not in visual.lower()
+    assert "normalized_slide_0_to_1" in (SCRIPTS / "orchestrate/make_stage_task.py").read_text(encoding="utf-8")
+
+
+def test_layout_scaffold_is_deterministic_and_hard_gated():
+    with tempfile.TemporaryDirectory(prefix="ppt-vnext-smoke-") as raw:
+        project, source = new_project(Path(raw))
+        asset_dir = project / "_internal/00_project/source/assets"
+        asset_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("one.png", "two.png"):
+            (asset_dir / name).write_bytes(b"image")
+        content = one_page_content(project, source)
+        content["pages"][0]["source_assets"] = [{"asset_id": "one"}, {"asset_id": "two"}]
+        write(project / "_internal/01_content/page_content.json", content)
+        write(project / "_internal/00_project/source/source_assets.json", {
+            "has_images": True, "image_count": 2, "assets": [
+                {"asset_id": "one", "normalized_path": "_internal/00_project/source/assets/one.png"},
+                {"asset_id": "two", "normalized_path": "_internal/00_project/source/assets/two.png"},
+            ],
+        })
+        run(TASKS, project, "--step", "layout")
+        plan_path = project / "_internal/01_layout_plan/layout_plan.json"
+        plan = read(plan_path)
+        task = read(project / "_internal/00_project/tasks/layout_task.json")
+        assets = plan["pages"][0]["visual_asset_strategy"]["assets"]
+        assert plan["scaffold_status"] == "incomplete" and plan["pages"][0]["scaffold_status"] == "incomplete"
+        assert [item["slot_label"] for item in assets] == ["image_1", "image_2"]
+        scaffold_input = task["constraints"]["layout_scaffold"]["source_path"]
+        assert scaffold_input in task["input_files"] and read(project / scaffold_input) == plan
+        result = run(SCRIPTS / "validate_contracts.py", "project", project, "--stage", "plan", ok=False)
+        assert result.returncode and "scaffold_status" in (result.stdout + result.stderr)
+
+
+def test_multi_image_feedback_is_validated_and_consumed():
+    with tempfile.TemporaryDirectory(prefix="ppt-vnext-smoke-") as raw:
+        project = prepare_layout_project(Path(raw))
+        plan_path = project / "_internal/01_layout_plan/layout_plan.json"
+        plan = read(plan_path)
+        assets = []
+        upload_dir = project / "_internal/01_layout_plan/uploads/page_01"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        for index in (1, 2):
+            rel = f"_internal/01_layout_plan/uploads/page_01/image_{index}.png"
+            (project / rel).write_bytes(f"image-{index}".encode())
+            assets.append({
+                "slot_label": f"image_{index}", "path": rel, "fit": "cover",
+                "crop_ratio": "16:9", "crop_anchor": "center", "changed": True,
+            })
+        plan["pages"][0]["visual_asset_strategy"] = {"asset_need": "required", "assets": assets}
+        write(plan_path, plan)
+        feedback = {"all_approved": False, "pages": {"page_01": {
+            "approved": False, "selected_suggestions": [], "custom_feedback": "", "asset_uploads": assets,
+        }}}
+        asset_error = validate_layout_feedback_assets(project, feedback, {"page_01"})
+        assert asset_error == "", asset_error
+        broken = json.loads(json.dumps(feedback))
+        broken["pages"]["page_01"]["asset_uploads"][1]["slot_label"] = "image_1"
+        assert "unique" in validate_layout_feedback_assets(project, broken, {"page_01"})
+        write(project / "_internal/01_layout_plan/layout_feedback.json", feedback)
+        run(TASKS, project, "--step", "layout", "--revision")
+        task = read(project / "_internal/00_project/tasks/layout_task.json")
+        requests = [item["request"] for item in task["constraints"]["required_feedback_items"]
+                    if item["scope"] == "page"]
+        assert len(requests) == 2 and all(f"slot image_{index}" in requests[index - 1] for index in (1, 2))
+
+
+def test_capacity_prefers_semantic_region_mapping():
+    sys.path.insert(0, str(SCRIPTS))
+    from estimate_layout_capacity import assign_text_to_regions
+    layout = {
+        "wireframe": [
+            {"label": "title", "zone": "header"},
+            {"label": "lead", "zone": "main"},
+            {"label": "items", "zone": "main"},
+            {"label": "chart_main", "zone": "main"},
+            {"label": "image_caption", "zone": "footer"},
+        ],
+        "copy_handling": {"final_on_slide": {
+            "title": "T", "lead": "L", "items": ["A", "B"], "image_caption": "C"
+        }},
+    }
+    assigned = {region["label"]: text for region, text in assign_text_to_regions(layout, {})}
+    assert assigned == {"title": "T", "lead": "L", "items": "A\nB", "chart_main": "", "image_caption": "C"}
+
+
+def test_svg_controller_defaults_to_parallel_wave_and_reuses_render():
+    pipeline = PIPELINE.read_text(encoding="utf-8")
+    finalizer = FINALIZE.read_text(encoding="utf-8")
+    assert '"parallel_wave"' in pipeline and '"required_default": len(active) > 1' in pipeline
+    assert '"max_parallel_batches": 3' in pipeline and "min(3, host_available_slots" in pipeline
+    assert "svg_artifacts_current_except_review" in finalizer and "svg.render_reused" in finalizer
+    assert "SVG_EVIDENCE_SEAL" in pipeline and "seal-ready-batches" in pipeline
+    assert "artifact_sha256" in finalizer and "evidence_sha256" in finalizer
+
+
+def test_svg_quality_checks_merge_before_one_repair():
+    maker = TASKS.read_text(encoding="utf-8")
+    pipeline = PIPELINE.read_text(encoding="utf-8")
+    finalizer = FINALIZE.read_text(encoding="utf-8")
+    assert "combined_quality_gate" in maker and '"max_combined_repair_rounds": 1' in maker
+    assert "initial_validator_checked" in finalizer and "initial_visual_checked" in finalizer
+    assert "repair_passes must be 0 or 1" in finalizer
+    assert "首次 Validator 后不得立即修图" in pipeline
+
+
+def test_svg_evidence_can_be_sealed_without_rerendering():
+    with tempfile.TemporaryDirectory(prefix="ppt-vnext-smoke-") as raw:
+        project = prepare_layout_project(Path(raw))
+        run(SCRIPTS / "template/apply_fidelity_template.py", "--project", project,
+            "--page-key", "page_01", "--layout-id", "content_base", "--title", "测试")
+        run(TASKS, project, "--step", "svg", "--batch", "batch_01")
+        task = read(project / "_internal/00_project/tasks/svg_batch_01_task.json")
+        report_rel = "_internal/04_validation/batches/batch_01.json"
+        review_rel = "_internal/04_validation/batches/batch_01_self_review.json"
+        write(project / report_rel, {
+            "status": "pass", "summary": {"errors": 0, "warnings": 0},
+            "reports": [{"file": "page_01.svg", "issues": []}],
+        })
+        review = {
+            "visual_review_status": "completed", "review_mode": "model_vision", "vision_available": True,
+            "combined_quality_gate": {
+                "initial_validator_checked": True, "initial_visual_checked": True,
+                "combined_findings": [], "repair_passes": 0,
+                "final_validator_rechecked": True, "final_visual_rechecked": True,
+            },
+            "pages": {"page_01": {"png_reviewed": True, "must_fix": [], "should_fix": [], "accepted_risks": []}},
+        }
+        write(project / review_rel, review)
+        preview = project / "_internal/03_png_preview"
+        (preview / "pages").mkdir(parents=True, exist_ok=True)
+        (preview / "pages/page_01.png").write_bytes(b"stable-page")
+        (preview / "full_deck_contact_sheet.png").write_bytes(b"stable-sheet")
+        outputs = {rel: hashlib.sha256((project / rel).read_bytes()).hexdigest() for rel in task["output_files"]}
+        artifact_files = [rel for rel in task["output_files"] if not rel.endswith("_self_review.json")]
+        event = {
+            "time": "2026-01-01T00:00:00+00:00", "type": "stage_completed", "details": {
+                "step": "svg", "batch": "batch_01", "task_sha256": task["task_sha256"],
+                "feedback_sha256": "", "issues": [], "output_sha256": outputs,
+                "artifact_sha256": {rel: outputs[rel] for rel in artifact_files},
+                "evidence_sha256": {review_rel: outputs[review_rel]},
+            },
+        }
+        events = project / "_internal/00_project/flow_events.jsonl"
+        with events.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+        review["pages"]["page_01"]["accepted_risks"] = ["minor aliasing"]
+        write(project / review_rel, review)
+        sys.path.insert(0, str(SCRIPTS / "orchestrate"))
+        from ppt_pipeline import stage_completed
+        assert stage_completed(project.resolve(), "svg", "batch_01") is False
+        page_hash = hashlib.sha256((preview / "pages/page_01.png").read_bytes()).hexdigest()
+        result = run(FINALIZE, project, "--step", "svg", "--batch", "batch_01", "--seal-evidence-only")
+        assert '"status": "pass"' in result.stdout and stage_completed(project.resolve(), "svg", "batch_01") is True
+        assert hashlib.sha256((preview / "pages/page_01.png").read_bytes()).hexdigest() == page_hash
+        assert "stage_evidence_sealed" in events.read_text(encoding="utf-8")
 
 
 def test_locked_layers_and_required_components_remain_hard_gates():
@@ -382,6 +587,7 @@ def main():
     check("minimal hashed repeatable stage task", test_task_is_minimal_hashed_and_repeatable)
     check("finalizer aggregates failures", test_finalizer_aggregates_failures_and_does_not_complete)
     check("content finalizer owns manifest and log", test_successful_content_finalize_owns_manifest_and_log)
+    check("content cannot silently drop source images", test_content_cannot_silently_drop_source_images)
     check("content_base canvas is safe", test_default_content_base_is_safe)
     check("SVG task is batch-scoped and minimal", test_svg_task_contains_only_selected_canvas_and_runtime)
     check("template review has revise/discard/approve", test_review_decisions_are_tri_state_without_weakening_approval)
@@ -392,6 +598,12 @@ def main():
     check("wireframe trace is a single structural repair", test_wireframe_trace_reports_one_structural_repair)
     check("SVG finalize idempotency is hash-bound", test_svg_completion_short_circuit_is_hash_bound)
     check("layout review uses semantic rendering", test_layout_review_uses_semantic_renderer)
+    check("layout scaffold is deterministic and incomplete by default", test_layout_scaffold_is_deterministic_and_hard_gated)
+    check("multi-image feedback is validated and consumed", test_multi_image_feedback_is_validated_and_consumed)
+    check("capacity maps semantic copy to matching regions", test_capacity_prefers_semantic_region_mapping)
+    check("SVG batches default to parallel waves and reuse renders", test_svg_controller_defaults_to_parallel_wave_and_reuses_render)
+    check("SVG validator and visual findings share one repair pass", test_svg_quality_checks_merge_before_one_repair)
+    check("SVG evidence seals without rerendering stable artifacts", test_svg_evidence_can_be_sealed_without_rerendering)
     check("locked layers and required components remain gates", test_locked_layers_and_required_components_remain_hard_gates)
     check("export remains controller-gated and strict", test_export_keeps_strict_controller_gate)
     check("completion metadata is machine-owned", test_no_model_owned_completion_metadata)

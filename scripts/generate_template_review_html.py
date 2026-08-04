@@ -91,7 +91,8 @@ async function submitFeedback(submissionAction){{
  if(revisionWithoutFeedback){{status.textContent='选择返修的 Layout 需要填写单独或整体反馈。';return;}}
  if(allPass&&!templateName){{status.textContent='全部 Layout 通过时必须填写模板名称。';return;}}
  const response=await fetch('/template-feedback',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{submission_action:submissionAction,approved:allPass,all_approved:allPass,template_name:templateName,overall_feedback:overall,layouts}})}});
- const result=await response.json();status.textContent=response.ok?'反馈已保存；页面不会自动发布模板。':(result.error||'提交失败');
+ const result=await response.json();status.textContent=response.ok?'反馈已保存；请回到 Codex 问答框发送「已完成」。':(result.error||'提交失败');
+ if(response.ok) window.alert('模板反馈已保存。请回到 Codex 问答框发送「已完成」，模型会继续处理。');
 }}
 </script></body></html>'''
     out = root / "00_template_review.html"

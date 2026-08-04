@@ -625,6 +625,13 @@ def validate_file(path, margin=MARGIN, quick_mode=False):
             E("ABSOLUTE_IMAGE_PATH", f"Image href must be portable and relative: {href}", target=f"image_{idx}")
         elif not (path.parent / href).resolve().is_file():
             E("MISSING_IMAGE_FILE", f"Image href does not resolve from the SVG: {href}", target=f"image_{idx}")
+        preserve = (image_node.get("preserveAspectRatio") or "xMidYMid meet").strip()
+        if preserve == "none" or not re.search(r"\b(meet|slice)\b", preserve):
+            E(
+                "IMAGE_ASPECT_DISTORTION",
+                "Image must use preserveAspectRatio with meet or slice; 'none' stretches the bitmap",
+                target=f"image_{idx}",
+            )
 
     # tspan line-break (multiple tspans with different dy or x)
     tspan_count = len(re.findall(r"<tspan\b", content, re.I))
@@ -802,6 +809,9 @@ def validate_file(path, margin=MARGIN, quick_mode=False):
         slot = img.get("data-slot", "")
         if not slot:
             W("MISSING_IMAGE_SLOT", f"<image> missing data-slot binding", target=iid)
+        preserve = (img.get("preserveAspectRatio") or "xMidYMid meet").strip()
+        if "slice" in preserve and not img.get("data-crop-ratio"):
+            W("MISSING_CROP_RATIO", "Cropped image should declare data-crop-ratio from the approved Layout choice", target=iid)
         ibox = image_box(img, parent_map)
         w, h = ibox[2], ibox[3]
         if w > 0 and h > 0:

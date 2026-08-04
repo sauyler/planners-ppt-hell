@@ -50,7 +50,7 @@
       "applies_to": {"page_types": ["cover"], "page_indices": [1]},
       "source_pages": [1],
       "display_geometry": {"x": 0.0, "y": 0.0, "width": 1280.0, "height": 720.0},
-      "fit": "cover|contain|stretch|none",
+      "fit": "cover|contain|none",
       "source_canvas": "1280x720",
       "target_canvas": "1920x1080",
       "confidence": "high|medium|low"
@@ -110,7 +110,7 @@ Layout与SVG阶段将其作为项目设计方向，不能用它覆盖用户brief
 
 - **color_roles[].source**: `visual_estimate` 为看图估计；`manual` 为人工指定；`xml_parsed` 只可在视觉确认其与渲染图一致后使用。XML 本身不是 MUST 级约束。
 - **type_hierarchy[].source**: `svg_measured` 表示字号从 SVG 渲染测量；`visual_estimate` 看图估计；`manual` 人工指定；`xml_parsed` 必须有页面视觉证据佐证。
-- **reusable_assets**: 仅包含由Template阶段视觉确认可安全复用的位图资产。`usage`标明角色，`fit`标明画布适配策略，`applies_to`标明适用页。
+- **reusable_assets**: 仅包含由Template阶段视觉确认可安全复用的位图资产。`usage`标明角色，`fit`只能为等比裁剪`cover`、完整显示`contain`或不强制适配`none`；禁止`stretch`。`applies_to`标明适用页。
 - **decoration_patterns**: 跨页重复的装饰形状（来自 SVG 分析），`elements` 为 SVG 元素描述，`parameters.canvas_change_strategy` 标明画布变化时的适配方式。
 - **usage_policy.mode**: 只记录模板提取审计。完整 profile 不进入 SVG task，也不得覆盖 Layout 的结构、wireframe 或文案。
 

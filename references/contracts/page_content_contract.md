@@ -19,7 +19,17 @@ _internal/01_content/page_content.json
 | `pages[].core_message` | 1-3 句页面核心含义 |
 | `pages[].body_blocks` | 非空，保留正文信息 |
 
-可选字段：`source_path`、`generated_at`、`source_page_id`、`source_title`、`tables`、`speaker_notes`、`source_excerpt`。
+可选字段：`source_path`、`generated_at`、`source_page_id`、`source_title`、`tables`、`speaker_notes`、`source_excerpt`、`source_assets`。
+
+源材料含图片时，相关页面的`source_assets`必须为数组，每项至少包含：
+
+- `asset_id`：匹配`_internal/00_project/source/source_assets.json`
+- `role_candidate`：该图在内容中的证据/案例/产品/人物/场景作用
+- `source_context`：图片在原稿附近的标题、段落或说明
+- 可选`caption`、`alt`
+
+Content只保持图片归属和语义，不决定裁剪或最终槽位。
+`source_assets.json`中的每个`asset_id`都必须分配到至少一个页面；不能因暂时不确定是否上屏而遗漏。是否最终上屏由Layout决定。
 
 `source_excerpt` 有源文案时应保存该页完整来源，不是短摘录。
 
