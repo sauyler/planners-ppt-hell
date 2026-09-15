@@ -40,17 +40,7 @@ def load_json(path):
         return None
 
 
-def get_batch_pages(manifest, batch_id):
-    batch_config = manifest.get("batch_config", {})
-    if batch_id not in batch_config:
-        raise SystemExit(f"batch '{batch_id}' not found in page_manifest.json")
-    batch = batch_config[batch_id]
-    if not isinstance(batch, dict) or not isinstance(batch.get("pages"), list):
-        raise SystemExit(f"batch_config.{batch_id}.pages must be a list")
-    return batch["pages"]
-
-
-def select_svg_files(svg_dir, manifest_path="", batch_id=""):
+def select_svg_files(svg_dir, manifest_path=""):
     svg_root = Path(svg_dir)
     if not manifest_path:
         return sorted(svg_root.glob("*.svg"))
@@ -59,7 +49,7 @@ def select_svg_files(svg_dir, manifest_path="", batch_id=""):
     if not manifest:
         raise SystemExit(f"Could not read manifest: {manifest_path}")
 
-    wanted_keys = set(get_batch_pages(manifest, batch_id)) if batch_id else {
+    wanted_keys = {
         p.get("page_key") for p in manifest.get("pages", []) if isinstance(p, dict)
     }
     files = []
@@ -117,16 +107,18 @@ def make_contact_sheet(written_files, output_path):
     if not written_files:
         return ""
     thumb_w, thumb_h, gap, label_h = 600, 338, 30, 44
-    canvas_w = gap + len(written_files) * (thumb_w + gap)
-    canvas = Image.new("RGB", (canvas_w, thumb_h + label_h + gap * 2), "#EEF2F6")
+    cols = min(3, len(written_files))
+    rows = (len(written_files) + cols - 1) // cols
+    canvas_w = gap + cols * (thumb_w + gap)
+    canvas = Image.new("RGB", (canvas_w, gap + rows * (thumb_h + label_h + gap)), "#EEF2F6")
     draw = ImageDraw.Draw(canvas)
     for index, file_path in enumerate(written_files):
         image = Image.open(file_path).convert("RGB")
         image.thumbnail((thumb_w, thumb_h))
-        x = gap + index * (thumb_w + gap)
-        y = gap + label_h
+        x = gap + (index % cols) * (thumb_w + gap)
+        y = gap + (index // cols) * (thumb_h + label_h + gap) + label_h
         canvas.paste(image, (x, y))
-        draw.text((x, gap + 10), Path(file_path).stem, fill="#1F2933")
+        draw.text((x, y - label_h + 10), Path(file_path).stem, fill="#1F2933")
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(output_path)
@@ -140,7 +132,6 @@ def main():
     parser.add_argument("svg_dir", help="Directory containing SVG files")
     parser.add_argument("png_dir", help="Output directory for PNG previews")
     parser.add_argument("--manifest", default="", help="Optional _internal/00_project/page_manifest.json")
-    parser.add_argument("--batch", default="", help="Optional batch_id from page_manifest.json")
     parser.add_argument("--update-manifest", action="store_true", help="Update png_path for rendered pages")
     parser.add_argument("--contact-sheet-only", action="store_true", help="Rebuild the full-deck contact sheet from existing page PNGs")
     args = parser.parse_args()
@@ -154,7 +145,7 @@ def main():
         print(json.dumps({"count": len(existing), "contact_sheet": contact_sheet}, ensure_ascii=False, indent=2))
         return
 
-    svg_files = select_svg_files(args.svg_dir, args.manifest, args.batch)
+    svg_files = select_svg_files(args.svg_dir, args.manifest)
     svg_files = [Path(f) for f in svg_files if Path(f).exists()]
     if not svg_files:
         raise SystemExit("No SVG files found to render.")
@@ -171,11 +162,7 @@ def main():
         raise SystemExit(result.returncode)
 
     written = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    contact_sheet = ""
-    if args.batch:
-        contact_sheet = make_contact_sheet(written, png_dir / "batches" / f"{args.batch}_contact_sheet.png")
-    else:
-        contact_sheet = make_contact_sheet(written, png_dir / "full_deck_contact_sheet.png")
+    contact_sheet = make_contact_sheet(written, png_dir / "full_deck_contact_sheet.png")
     def portable(path):
         try:
             return str(Path(path).resolve().relative_to(png_dir.resolve()))
@@ -199,7 +186,6 @@ def main():
 
     manifest = {
         "png_dir": ".",
-        "batch": args.batch,
         "generated_files": [portable(path) for path in written],
         "files": files_meta,
         "count": len(written),

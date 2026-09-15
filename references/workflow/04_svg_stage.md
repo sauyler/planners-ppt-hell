@@ -1,25 +1,70 @@
-# 04 — SVG Batch阶段
+# 制作与视觉自检
 
-一个task只对应一个batch。只读取task的batch input、已选canvas、batch-scoped runtime、`style_system.md`、`svg_rules.md`和`svg_stage_contract.md`。
+结果：实际可读、可编辑、跨页一致的 SVG 页面。内容处理、布局、裁剪和 SVG 由当前主 Agent 一起完成，不另做线框审阅。
 
-## 执行
+开始本阶段时按顺序读三份：`../domain/style_system.md` 的**设计总规则**（先定读法与秩序）、`../domain/layout_taxonomy.md` 的**信息组织判断**、`../domain/svg_rules.md` 的**转换约束与纵向构造**。材料与相邻页始终可回看。
 
-1. 主Agent先告知用户即将启动的batch和执行者。若task的`source_asset_handoff.has_images=true`，同一交接必须明确列出本批图片数量、文件和Layout批准的fit/crop；不得只说“有素材”。Controller返回多个ready batches时，先生成该波次的全部冻结task，再按`min(3, 宿主可用槽位, ready batch数)`并行启动一次性SVG子Agent；每波上限3个是默认执行约束，不得保守改成逐batch串行等待。每个子Agent完成finalize后立即退出，子Agent之间不建立affinity、resume、中间通信或轮询。宿主不支持时，先告知用户再由主Agent串行执行。
-2. 不手抄命令。原样执行task的`canvas_start_argv_by_page`，由脚本建立页面并把canvas相对图片路径重写为产出SVG可达路径。
-3. 按`template_layout_id`和已生成页面执行已批准canvas。
-4. 原样保留所有`data-template-lock`层；replace layer初始为空。
-5. 只在replace layer内按已批准wireframe和`final_on_slide`绘制；每个非`background` wireframe区域必须在对应SVG元素或分组上写入相同的`data-wireframe-label`，作为结构执行追踪；读取batch-scoped Layout approval，不遗漏已批准的图表、图片占位和模型化要求。
-   - 图片使用相对`href`，写`data-slot`与`data-wireframe-label`。
-   - `fit=contain`使用`preserveAspectRatio="xMidYMid meet"`；`fit=cover`使用`preserveAspectRatio="<anchor> slice"`。禁止`preserveAspectRatio="none"`。
-   - 图表避免依赖`rotate/skew/matrix`；饼图弧和折线路径在导出前必须跑转换回归。
-6. 不重新选择canvas、不改文案、不跨batch写入。
-7. 先原样运行task的validator argv与visual render argv，两项初检都完成前不得修图。
-8. 查看batch PNG/contact sheet，把初次validator issues和视觉发现合成唯一`combined_findings`，最多集中返修一次；不得先根据valiator修一轮、再根据视觉自审修第二轮。
-9. 修复后同时重跑validator与视觉检查，更新语义自审文件；没有视觉证据或仍有must_fix时停止。
-10. 运行task返回的`finalize`。
+## 先定整套秩序，再画单页
 
-流程分别记录`artifact_sha256`（SVG + validator）和`evidence_sha256`（self-review）。若仅更新`<batch>_self_review.json`而当前artifact与规范PNG均稳定，Controller进入`SVG_EVIDENCE_SEAL`，用一次`seal-ready-batches`批量封存所有ready batch的新证据；不重跑validator、不重新渲染，也不要求执行者逐batch重新finalize。
+在 `_internal/01_content/design_direction.md` 里先写清这套页面共同遵循的东西，再动手：
 
-task不得包含完整profile、完整registry、提取证据、asset registry、`components.svg`或未选canvas。渲染权限失败先对原命令申请提权；仍阻断则记录在self-review并停止当前阶段，不能伪装完成。
+- **网格**：栏数、沟槽、边距、纵向步长。
+- **层级角色**：哪几档、每档固定承担什么（页标题／区块标题／正文／标签）。
+- **色彩角色**：强调色只落在哪里，语义色对应什么。
+- **重复出现的元数据**：页眉栏目名、页码、页脚，以及它们的位置。
+- **节奏**：这套页面在明暗、密度、尺度上怎么起伏。
 
-一次性SVG子Agent是默认首选；多个写入范围完全不相交的冻结task默认并发。失败task由新的一次性执行者或主Agent串行重跑，无需恢复旧会话。
+**判断标准**：任意两页并排像一套；任意一页单看能认出是哪一套。**设计判断的框架在 `style_system.md`，这里不重复。**
+
+## 制作
+
+1. 明确这页的信息关系（并列／比较／因果／层级／时序／构成）与第一眼落点，再决定形式。形式要匹配信息形状；不要求逐页填多组同义设计理由。
+2. 写 `_internal/02_svg_source/<page_key>.svg`。通常使用 1920×1080，同一套保持画布一致。图形和文字保留 SVG 原生对象。
+3. 纵向位置从 `design_direction.md` 里的步长导出；页眉、页脚、页码、栏目名这些跨页锚点，各页用同一组坐标。
+4. 真实图片用项目内相对 href，给可修改图片设置稳定 `data-asset-key`。完整显示用 meet，填充用 slice；主体与截图关键信息不能因裁剪丢失。脚本从实际 SVG 提取图片供用户调整，无需 wireframe slot。
+5. 严格模板先调用 apply_fidelity_template.py 实例化选中的空内容 canvas，再填入内容层，保留指定品牌锁层。自主设计不需要 fidelity 包。
+
+密度、字号档位、配色、是否用容器，都是设计决定，**没有脚本阈值**。页面声明的 `mode` 只决定一条硬约束：`讲` 页的字号不得低于 18px，`读` 页不得低于 12px（≈6pt，任何缩放都读不出）。
+
+## 看图与修复
+
+通常做约 3 页就运行：
+
+```bash
+python scripts/orchestrate/ppt_pipeline.py <project> check --pages opening evidence recommendation
+```
+
+页数可按复杂度调整。check 一次运行技术检查并渲染。技术检查只保留两类东西：**转成 PPT 会坏**的，和**在任何风格下都是缺陷**的（文字压文字、元素出画布、空页）。它**不再**对密度、字号档位、构件选择、留白多少发表意见——那些判断归你。
+
+所以 `check` 的 warning 不能代替看图。实际查看每页 PNG 大图，核对阅读层级、截断、重叠、图表标签、图片主体和来源；查看整套 contact sheet 检查构图重复与节奏。不能只看 SVG 代码宣称视觉通过。
+
+**样式类 warning 已被移除，不等于页面就好了**——自检的责任因此全部落在你和那组测量上。 看到启发式提示（`OUTSIDE_SAFE_MARGIN` 这类 info 级提示）结合 PNG 判断；不必为消除提示而改设计。
+
+修订后重新 check；有进展就继续，不限制只修一次。同一问题无进展时改变表达或实现方法；工具权限失败走对应权限恢复，不将失败包装成“无视觉能力但通过”。
+
+看过当前图片后，用 check 返回的 render_token 记录具体观察：
+
+```bash
+python scripts/orchestrate/ppt_pipeline.py <project> inspect --page opening --render-token <token> \
+  --note '标题与证据均可读，截图关键信息完整；已修复来源与正文的重叠' \
+  --first-glance '左侧 48px 主标题' \
+  --design-check '规则4 重心唯一；规则10 底部空档不承载分组，属空隙，已收紧；无其他违规'
+```
+
+有未解决问题时加 `--must-fix`，继续修复。token 由脚本生成；该命令仅记录模型的观察，不证明模型真的看过图，更不代表人审通过。
+
+## 收尾：按 `style_system.md` 的规则自检
+
+`check` 每页会带回一组**只读测量**——字号档位、最大／最小尺度比、等面积容器组、内容底部到页脚线的空档、与其他页共用的基线。**它们是事实不是判定**，但对着数字走一遍 `style_system.md` 的完成前自检，比凭印象可靠：等面积容器组多半就是「等权没有重心」，尺度比很小而档位很多就是「层级失效」，底部空档先问它有没有承载分组。
+
+结论必须落到 `inspect` 的两个字段上（`--first-glance` 与 `--design-check`，都必填）：**第一眼是什么**、**对照了哪几条规则、有没有违规**。空着不通过——这一步以前只收自由文本，所以可以被跳过，而实际上它被跳过了。
+
+自检不等于人审。自检通过只说明你按规则看过并留下了结论，不构成用户批准。
+
+## 用户返修
+
+读取 `_internal/05_review/feedback.json` 的全部 items。区域标注、整页重排、文案与图片修改都回到本阶段。逐项落实后用 `resolve --feedback-id <id> --note <实际处理>` 记录；脚本要求受影响内容发生改变，但语义是否兑现仍要对照反馈。新增图片需创建实际区域并重排，裁剪预览不是已修改的页面。
+
+**用户批「某种形式丑」时，先分清是构件本身，还是执行质量。** 大框小字、低对比容器、内容撑不起容器，都会让一个本身成立的构件显得难看；直接删掉构件可能让整套更单调。用 `resolve` 的说明写清你判断成了哪一种。
+
+完成：所有页面技术错误解决，当前 PNG 已查看，整套节奏已检查，无未处理反馈或 must_fix。随后进入整套审阅。

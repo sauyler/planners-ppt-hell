@@ -1,22 +1,34 @@
-# 02 — Content阶段
+# 轻量内容底稿
 
-只读取task、规范化源Markdown、`source_assets.json`、task列出的图片和`page_content_contract.md`。不要读取Template/Layout/SVG或导出实现。
+结果：一份可追溯、方便制作和恢复的页级底稿。它保留主张与证据，不提前冻结坐标或版式。
 
-目标：生成完整、可追溯的`_internal/01_content/page_content.json`。
+读 `_internal/00_project/source/source.md`、同目录 `source_assets.json` 并实际查看其图片。按受众需要判断每页证明什么、哪些数字与条件不能遗漏、图片承担什么证据作用。已有已批准逐页稿直接沿用；长文按论证切分，避免每段机械变成一页。
 
-## 做
+## 图片：先问一次，再决定
 
-- 保留源文案含义、事实、数字、来源、speaker notes和素材需求。
-- 若`source_asset_handoff.has_images=true`，逐一查看task列出的本地图片；在相关页面用`source_assets`保留asset_id、原始位置语境、说明及用途候选。图片不是装饰性“有/无”标签。
-- 按叙事目的分页；每页有唯一`page_key`、action title、core message和body blocks。
-- 不因预估版面空间提前删除重要内容；可把明显不宜上屏的解释放入notes候选。
-- 保持输出为合法UTF-8 JSON，并严格遵守contract。
+图片是设计的一部分，不只是输入。看完材料后判断这套页面**需不需要配图**：
 
-## 不做
+- **需要**：一次性向用户说明需要什么类型的图（产品图、场景图、截图、数据图）、大概哪几页用、以及是否已有现成资产。**只问一次，不逐页追问。**
+- 用户提供不了：可以自行寻找或生成可用素材；仍无法解决时，**在底稿里写明哪几页为什么无图**，不要用装饰性图形冒充证据图。
+- 源文自带图片时，仍按上面的判断决定用不用、用在哪页；不用的在 `unused_assets` 记原因。
 
-- 不选择模板canvas。
-- 不设计wireframe、网格、字号或SVG。
-- 不写manifest、flow events、feedback或任何机器元数据。
-- 不决定图片裁剪、缩放、槽位或最终是否上屏；这些属于Layout。
+## 声明每页的读法
 
-完成后运行task返回的`finalize`。Controller会验证输出并从Content页序生成manifest和batch索引。失败时根据一次性完整issues集中修一次；不要另写result JSON。
+给每页写一个 `mode`，它决定这页按投影讲还是按文档读，也决定字号下限与显著度的严格程度（见 `../domain/style_system.md` 的元规则）：
+
+- `讲`——现场投屏，读者从远处看，注意路径一次性。
+- `读`——会后留档或逐页细看，允许密排与多档字号。
+
+没写就按 `读` 处理。一套 deck 可以两种混排。
+
+写 `_internal/01_content/page_content.json`：
+
+```json
+{"project":"项目名","pages":[{"page_key":"opening","mode":"讲","title":"主张标题","content":"本页要保留的论点、证据、来源与限定条件","source_assets":["asset_001"],"notes":"讲稿或不宜上屏的解释"}],"unused_assets":{}}
+```
+
+`page_key` 是稳定 ID，顺序由数组决定。拆页使用新 ID，其他页不用重新编号。`mode` 只接受 `讲` 或 `读`。`source_assets` 引用登记 ID；不用的源图在 `unused_assets` 中写原因。完整原文已在 source 保存，无需每页再次复制全文。
+
+制作中可以压缩措辞、改变布局、拆合页面和调整 notes；在底稿同步有意义的取舍，保留事实与追溯关系。图表数据、单位、来源和限定条件不能因版面不足被删除。改变商业结论或用户明确批准的主张时才需要确认。
+
+完成：底稿覆盖论证与资产、每页读法已声明，下一步可直接制作。运行 next 同步页序并进入 CREATE。脚本只检查所需字段和资产引用，主张是否成立仍由模型核对材料。

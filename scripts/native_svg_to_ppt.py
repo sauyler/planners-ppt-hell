@@ -52,6 +52,11 @@ SLIDE_H_IN = 7.5
 SCALE = SLIDE_W_IN / SVG_W
 FONT_SCALE = SCALE * 72
 
+# 低于这个 pt 值的描边在部分渲染器（LibreOffice 等）里不会被绘制，
+# 表现为"细线整条消失"。注意 SLIDE_W_IN 是 13⅓ 的近似值，
+# 1920 画布上的 1px 换算出来是 0.49999pt，所以比较时必须留一点浮点余量。
+MIN_STROKE_PT = 0.5
+
 SLIDE_W = Inches(SLIDE_W_IN)
 SLIDE_H = Inches(SLIDE_H_IN)
 
@@ -332,8 +337,19 @@ def apply_fill_stroke(shape, node, inherited_attrs=None, parent_opacity=1.0):
             c = parse_color(stroke_val)
             if c:
                 shape.line.color.rgb = c
+            # stroke-width 以 SVG 画布 px 计；FONT_SCALE 已含 px→pt（SCALE * 72）。
+            # 这里不得再乘任何经验系数：批准稿 PNG 由 Chromium 按 SVG 声明的满权重渲染，
+            # 只要这里缩放一次，导出稿的每一根描边就永远对不上批准稿。
             sw = float(stroke_width)
-            shape.line.width = Pt(sw * FONT_SCALE * 0.6)
+            line_pt = sw * FONT_SCALE
+            shape.line.width = Pt(line_pt)
+            # 余量取 1e-4：SLIDE_W_IN 是 13⅓ 的近似值，1920 画布上的 1px 实际落在
+            # 0.49999pt，不加余量会把合法的发丝线误判成过细。
+            if line_pt < MIN_STROKE_PT - 1e-4:
+                warn(
+                    f"stroke-width {sw:g} 换算为 {line_pt:.2f}pt，低于 {MIN_STROKE_PT}pt；"
+                    "部分渲染器不会绘制这么细的线，请在 SVG 中加粗"
+                )
             if stroke_dasharray:
                 # Kept for legacy SVGs, but new generated SVGs should avoid it.
                 warn("stroke-dasharray encountered; converted to PPT dash style, but current SVG rules prohibit dasharray")
@@ -391,7 +407,14 @@ def svg_to_inches(v):
 
 
 def estimate_text_width(text, font_size_pt):
-    """粗略估算文本宽度 (inches)。"""
+    """估算文本宽度 (inches)，只用来给文本框定宽，不决定文字最终停在哪。
+
+    0.58 是西文平均字宽的粗估；ord > 0x2E7F 按全角计 1.0 字宽（CJK 正确）。
+    这个粗估是安全的：调用处给了 LEFT/CENTER/RIGHT 三种框内对齐，
+    框宽误差会在框内自我抵消（居中的仍居中，靠边的仍靠边），
+    所以不必在这里引入真实字体度量。若将来要精确测宽，用实际字体取字宽，
+    不要再叠经验系数。
+    """
     if not text:
         return 0
     w = 0
@@ -1181,12 +1204,20 @@ def _add_text_element(slide, node, offset_x, offset_y, inherited_attrs=None,
             ls_extra = float(letter_spacing) * len(full_text) * SCALE
         except:
             pass
+    # 文本框宽度：估宽留 15% 余量（1.15），避免粗体/斜体把框挤爆。
+    # 框宽不决定文字停在哪——下面三种对齐都在框内对齐，误差自我抵消。
     text_w = estimate_text_width(full_text, fs_pt) * 1.15 + ls_extra
     text_w = max(text_w, 0.5)
+    # 1.6 是给文本框留的行高余量；word_wrap 与 auto_size 均关闭，所以它只影响框的
+    # 包围盒，不影响排版。
     text_h = fs_pt / 72.0 * 1.6
 
     x_in = svg_to_inches(x_svg)
     y_in = svg_to_inches(y_svg)
+    # SVG 的 y 是基线，PPT 文本框的 y 是顶边，两者差一个上升部（ascender）。
+    # 0.85 是常见无衬线字体的粗略上升部比例（实际随字体在 0.75–0.9 之间）。
+    # 误差表现为整页统一的轻微垂直偏移，不改变页内元素的相对关系；
+    # 要精确就按实际字体读 hhea/OS2 的 ascender，不要再叠系数。
     y_top = y_in - (fs_pt / 72.0) * 0.85
 
     if anchor == 'middle':

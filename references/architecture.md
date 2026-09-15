@@ -1,61 +1,27 @@
-# Planner's PPT Hell vNext architecture
+# 架构
 
-本文件只供维护者读取，不进入阶段task。
+单一控制面 `scripts/orchestrate/ppt_pipeline.py`，状态派生与版本逻辑在 `scripts/project_state.py`。主 Agent 完成轻量内容、页面设计与看图修订。
 
-## 分层
+CONTENT → CREATE ↔ VISUAL_REVIEW → EXPORT → EXPORT_VERIFY → COMPLETE。
 
-- `ppt_pipeline.py`是唯一控制面：派生状态、生成当前动作、启动审阅、发布模板和导出。
-- `make_stage_task.py`生成不可变阶段快照与输入hash。
-- `finalize_stage.py`是唯一阶段完成写者：验证输入/输出/合同/视觉证据，机器生成时间、hash、issues和`stage_completed`事件。
-- 当前主Agent串行完成Template、Content和Layout。SVG每个batch首选一个一次性子Agent；子Agent只有冻结task的生产职责，没有持久会话身份、affinity或状态职责。主Agent在启动前告知用户；宿主不支持时告知后串行回退。
-- Review Server是唯一人工反馈写者。
+批次是工作节奏，没有单独状态、执行者身份或固定页数。Layout 思考属于 CREATE，实际 SVG 是几何唯一来源。内容底稿保留含义、来源与每页读法（`mode`）；方向 Markdown 保留全套秩序决定（网格与纵向步长、层级角色、色彩角色、跨页锚点、节奏）。改动对页面版本的影响由脚本计算。
 
-## 单一事实源
+Review 生成器与 Server 使用同一 snapshot；页面提交必须携带 review_id，Server 对照当前 SVG、依赖图片、内容、PNG、HTML、自检记录。旧浏览器不能批准新版本。图片操作来自实际 SVG image 元素，新增操作以稳定 asset_key 传回创作。反馈只有一个目的地；每条需要实际处理说明。
 
-| 问题 | 权威 |
-|---|---|
-| 项目状态与运行时间 | `flow_events.jsonl`机器事件 |
-| 页面完整事实 | `page_content.json` |
-| 源文稿与图片资产 | `_internal/00_project/source/source.md`与`source_assets.json` |
-| 上屏文案、结构、wireframe、素材角色和canvas选择 | 已批准`layout_plan.json` |
-| 模板视觉身份与页面边界 | 单一`template_registry.json`和已批准canvas |
-| 人工决定 | Server写入且hash绑定的feedback JSON |
+视觉来源是内容之后的第一个决定，四选一：自主设计、模板库里的模板、视觉参考、新建严格品牌模板。**四条路线都在 `01_template_intake.md` 里有完整命令序列与产物清单**——提取路线是八步（渲染源页 → 提取事实 → 补方向与审批 → 写 worker result → 构建 → 看图自审并封存 → 人审 → 发布），参考路线先用 `prepare_visual_references.py` 真渲染参考页再提炼方向；`--mode reference` 没有参考件会直接报错，不允许只登记模式不渲染。严格模板保留资产提取、canvas 锁层和模板库接口。导出继续使用原生 SVG→PPTX 转换器与严格缺图，最终渲染复核单独记录。
 
-Layout Review Server可把用户上传图片写入`_internal/01_layout_plan/uploads/`，并只通过`layout_feedback.json`把路径、slot和裁剪决定交给Layout revision。上传不是第二asset registry。
+## 校验器的边界（本次重划）
 
-不保存`agent_result.json`、Agent ID、affinity、parallel/serial状态或对话式恢复信息。
+`scripts/validate_svg_layout.py` 只保留两类检查：**转成 PPT 会坏**的，和**在任何风格下都是缺陷**的。它不再评价密度、字号档位、构件选择、留白或配色。
 
-## 状态机
+理由：那些启发式并不保护正确性，而是把每一套页面推向同一种稀疏、均匀、卡片式的样子——与一份密排、有设计感的提案正好相反。实测中按人审意见去掉卡片后，警告反而从 10 涨到 17，全部来自这些规则。设计判断改由**模型渲染后看图**承担，这是模型能力提升后的正确分工。
 
-```text
-PROJECT_MISSING → TEMPLATE_INTAKE
-→ TEMPLATE_RENDER_REQUIRED / TEMPLATE / TEMPLATE_REVIEW / TEMPLATE_REVISION / TEMPLATE_PUBLISH
-→ CONTENT → LAYOUT → LAYOUT_REVIEW
-→ SVG_BATCH_BUILD → VISUAL_REVIEW → EXPORT → COMPLETE
-```
+唯一保留的尺寸规则是**可读性下限**，且随页面 `mode` 切换：`讲` 页 ≥18px（9pt），`读` 页 ≥12px（6pt）。这是任何缩放都读不出的物理下限，不是风格偏好。
 
-每次`next`只返回当前状态的一个执行单元。Template、Content、Layout不并行。SVG按batch使用一次性子Agent是默认行为；多个写集不相交的冻结task可并发。返修时旧Layout Plan、模板产物和SVG必须复制到task inputs快照，实时产物路径只作为输出，禁止输入/输出同路径。
+## 退役
 
-## 阶段完成
+Layout JSON scaffold、预布局 HTML、capacity gate、wireframe label、旧 make/finalize task 协议、强制并发策略和 batch 配额；以及校验器里的 `FONT_SIZE_TIERS`、20px 正文字号警告、`HIGH_TEXT_DENSITY`、`HIGH_CANVAS_COVERAGE`、`DENSITY_IMBALANCE_*`、`LARGE_EMPTY_REGION`、`LOW_MODULE_UTILIZATION`、`TABLE_READABILITY_RISK`、`FOOTER_ZONE_INVASION`、`MISSING_IMAGE_SLOT`、`MISSING_CROP_RATIO`、`NONSTANDARD_IMAGE_RATIO`、`CIRCLE_TOO_SMALL`、`TEXT_ANCHOR_MIDDLE_LONG`、`FONT_FAMILY_DRIFT`、`REPEATED_LAYOUT_RHYTHM` 与页面 metadata 概念。旧运行须使用外部归档版本，不在活跃包中保留兼容状态机。
 
-模型不声明完成。`finalize-stage`必须同时验证：task hash、所有input hash、所有声明输出、阶段contract、hard validator和视觉闭环；一次返回全部issues。成功才追加`stage_completed`及当前output/feedback hashes。Controller判断完成时再次绑定当前task hash和当前输出hash。revision只靠冻结feedback/旧产物snapshot，不依赖旧会话。相同SVG task与产物已完成且PNG证据仍在时，finalize幂等返回，不重复渲染或追加事件。
+同时修掉三个真 bug：`estimate_text_box` 忽略 `text-anchor`（右对齐／居中文字会误报越界与重叠）、`check` 对未变页面不回 `issues`（全量扫描看不到告警分布）、`check_rhythm` 是无人写入 metadata 的死代码。
 
-## 模板运行时
-
-Template canvas只固定身份与边界，replace layer为空。Layout精确选择专用canvas；无精确匹配时选择`content_base`。SVG task只包含batch-scoped runtime、已选canvas、最终文案、wireframe和最小style。完整profile、提取证据、asset registry、`components.svg`和未选canvas禁止进入。每个非background wireframe区域以同名`data-wireframe-label`记录结构执行，不扩展为几何或视觉质量门禁。
-
-## 人工门禁
-
-- Template：每Layout通过/舍弃/返修 + 单独反馈；整体区只有提交批次反馈/全部通过 + 整体反馈 + 模板名。
-- Layout：全deck结构、final copy、wireframe、容量，以及图片上传/替换和非变形裁剪选择。
-- Visual：全deck PNG审阅。
-
-批准绑定当前HTML及相关PNG/SVG/registry。任何证据变化使旧批准失效。Controller和模型均不得写批准。
-
-## 维护规则
-
-- 一个状态机、一个registry、一个review写入路径、一个stage issue模型。
-- hard validators只防可确定性事故；启发式建议为warning。
-- 失败一次聚合；返修保持集中且有界，不把validator拆成逐字段循环。
-- 旧机制被替代后直接删除，不保留fallback或备份目录。
-- 运行日志自动生成；不依赖Agent另写聊天日志。
+测试：source asset 与 converter 回归；项目、反馈、版本、模板与 UI 集成；真实产物由用户抽查。历史资料只作历史，不进入运行路由。

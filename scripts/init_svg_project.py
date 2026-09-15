@@ -13,11 +13,9 @@ CANONICAL_DIRS = [
     f"{INTERNAL_ROOT}/00_project",
     f"{INTERNAL_ROOT}/00_project/source/assets",
     f"{INTERNAL_ROOT}/01_content",
-    f"{INTERNAL_ROOT}/01_layout_plan",
     f"{INTERNAL_ROOT}/02_svg_source",
     f"{INTERNAL_ROOT}/03_png_preview",
     f"{INTERNAL_ROOT}/04_validation",
-    f"{INTERNAL_ROOT}/04_validation/batches",
     f"{INTERNAL_ROOT}/05_review/versions",
     f"{INTERNAL_ROOT}/06_ppt_output",
     f"{INTERNAL_ROOT}/ref",
@@ -27,15 +25,10 @@ STARTER_FILES = {
     f"{INTERNAL_ROOT}/01_content/page_content.json": json.dumps(
         {"project": "", "source_path": "", "pages": []}, ensure_ascii=False, indent=2
     ),
-    f"{INTERNAL_ROOT}/01_layout_plan/layout_plan.json": json.dumps(
-        {"project": "", "layout_version": 1, "pages": []}, ensure_ascii=False, indent=2
-    ),
     f"{INTERNAL_ROOT}/00_project/page_manifest.json": json.dumps(
         {
-            "project": "", "version": "4.0", "batch_size": 3,
-            "template_intake": {"status": "pending", "mode": "", "origin": "", "source_files": [], "confirmed_at": ""},
-            "creative_direction": {"approved_rules": []},
-            "batch_config": {}, "pages": [],
+            "project": "", "version": "5.0", "template_intake": {"mode": "autonomous"},
+            "pages": [],
         },
         ensure_ascii=False, indent=2,
     ),
@@ -95,7 +88,6 @@ def main():
 
     print(f"Initialized project at: {root.resolve()}")
     print("User-facing deliverables:")
-    print("  01_layout_direction.html")
     print("  02_visual_review.html")
     print("  final_deck.pptx")
     print("Internal workspace:")

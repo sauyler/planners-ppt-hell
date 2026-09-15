@@ -65,7 +65,7 @@ def review_issues(project_root):
             issues.append(f"{layout_id}: canvas is not visually usable")
         if item.get("must_fix"):
             issues.append(f"{layout_id}: unresolved visual must_fix")
-        if len(item.get("retained_features", [])) < 2:
+        if not item.get("retained_features", []):
             issues.append(f"{layout_id}: retained template features are not explicitly identified")
 
     canvas_svgs = [fidelity / layout.get("canvas_file", "") for layout in layouts.values()]

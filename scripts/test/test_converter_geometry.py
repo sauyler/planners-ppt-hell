@@ -9,8 +9,10 @@ import unittest
 import zlib
 from pathlib import Path
 
+from lxml import etree
 from pptx import Presentation
-from pptx.util import Inches
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.util import Inches, Pt
 
 SCRIPT = Path(__file__).resolve().parents[1] / "native_svg_to_ppt.py"
 SPEC = importlib.util.spec_from_file_location("native_svg_to_ppt", SCRIPT)
@@ -59,6 +61,55 @@ class ConverterGeometryTests(unittest.TestCase):
             self.assertEqual(sliced.height, Inches(2))
             self.assertGreater(sliced.crop_left, 0)
             self.assertGreater(sliced.crop_right, 0)
+
+
+class ConverterStrokeWidthTests(unittest.TestCase):
+    """描边保真：导出稿的描边必须与批准 PNG 同权重。
+
+    背景：转换器曾对 stroke-width 额外乘以 0.6，使每一根描边只有声明值的 60%
+    （1920 画布上 1px -> 0.30pt），细线在 PPTX 里整条消失，
+    而批准稿 PNG 是按满权重渲染的，两者永远对不上。
+    """
+
+    def _line_width(self, svg_stroke_width, canvas=(1920, 1080)):
+        """按真实转换路径换算一条描边，返回 PPT 里的线宽（EMU Length）。"""
+        CONVERTER.set_canvas(*canvas)
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(1), Inches(1))
+        node = etree.fromstring(
+            '<rect stroke="#000000" stroke-width="%s"/>' % svg_stroke_width
+        )
+        CONVERTER.apply_fill_stroke(shape, node)
+        return shape.line.width
+
+    def test_stroke_width_has_no_extra_scaling(self):
+        # 用 EMU 整数比较，避开 pptx 长度取整带来的浮点噪声
+        for declared in (1, 2, 4):
+            with self.subTest(declared=declared):
+                self.assertEqual(
+                    int(self._line_width(declared)),
+                    int(Pt(declared * CONVERTER.FONT_SCALE)),
+                    f"{declared}px 描边被额外缩放了",
+                )
+
+    def test_one_px_stroke_is_not_flagged(self):
+        # 1920 画布上的 1px ≈ 0.49999pt，是合法的发丝线，不应触发告警
+        CONVERTER._conversion_warnings.clear()
+        self._line_width(1)
+        self.assertEqual(
+            [w for w in CONVERTER._conversion_warnings if "stroke-width" in w],
+            [],
+            "1px 描边被误判为过细",
+        )
+
+    def test_sub_half_point_stroke_is_reported(self):
+        CONVERTER._conversion_warnings.clear()
+        self._line_width(0.5)
+        self.assertTrue(
+            any("stroke-width" in w for w in CONVERTER._conversion_warnings),
+            "低于 0.5pt 的描边必须给出提示，否则细线会静默消失",
+        )
 
 
 if __name__ == "__main__":

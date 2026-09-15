@@ -4,6 +4,7 @@
 import argparse
 import html
 import json
+from project_state import template_version
 from pathlib import Path
 
 
@@ -90,7 +91,7 @@ async function submitFeedback(submissionAction){{
  if(missing){{status.textContent='请先为每个 Layout 选择通过、舍弃或返修。';return;}}
  if(revisionWithoutFeedback){{status.textContent='选择返修的 Layout 需要填写单独或整体反馈。';return;}}
  if(allPass&&!templateName){{status.textContent='全部 Layout 通过时必须填写模板名称。';return;}}
- const response=await fetch('/template-feedback',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{submission_action:submissionAction,approved:allPass,all_approved:allPass,template_name:templateName,overall_feedback:overall,layouts}})}});
+ const response=await fetch('/template-feedback',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{template_version:"{template_version(root)}",submission_action:submissionAction,approved:allPass,all_approved:allPass,template_name:templateName,overall_feedback:overall,layouts}})}});
  const result=await response.json();status.textContent=response.ok?'反馈已保存；请回到 Codex 问答框发送「已完成」。':(result.error||'提交失败');
  if(response.ok) window.alert('模板反馈已保存。请回到 Codex 问答框发送「已完成」，模型会继续处理。');
 }}
