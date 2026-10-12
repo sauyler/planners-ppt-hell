@@ -346,7 +346,15 @@ dialog textarea{width:100%;min-height:96px;font:inherit;padding:8px;border:1px s
     <h3 id="annotationHeading" hidden><span>新批注</span><small class="muted" id="regionCountHint"></small></h3>
     <div id="regions"></div>
 
-    <h3>新修改意见</h3>
+    <h3 id="feedbackHeading">新修改意见</h3>
+    <div id="templateDecisionSection" hidden style="margin-bottom:8px">
+      <div style="font-weight:600;font-size:12px;margin-bottom:4px;color:var(--dsw-alias-label-secondary)">此版式处理决定</div>
+      <div class="tools" id="templateDecisionButtons" style="display:flex;gap:6px">
+        <button type="button" class="tool-mode active" id="btnDecisionPass" onclick="setTemplateDecision('pass')" style="flex:1">通过</button>
+        <button type="button" class="tool-mode" id="btnDecisionRevise" onclick="setTemplateDecision('revise')" style="flex:1">返修</button>
+        <button type="button" class="tool-mode" id="btnDecisionDiscard" onclick="setTemplateDecision('discard')" style="flex:1">舍弃</button>
+      </div>
+    </div>
     <textarea id="feedback" placeholder="填写本页修改意见…"></textarea>
     <div id="rewriteScope" class="muted"></div>
 
@@ -367,14 +375,14 @@ dialog textarea{width:100%;min-height:96px;font:inherit;padding:8px;border:1px s
   <div class="tools">
     <button id="pagePrev" class="review-secondary-action" onclick="go(-1)" title="上一页" aria-label="上一页"><span data-review-icon="ChevronUp"></span><span>上一页</span></button>
     <button id="pageNext" class="review-secondary-action" onclick="go(1)" title="下一页" aria-label="下一页"><span>下一页</span><span data-review-icon="ChevronDown"></span></button>
-    <button id="reloadButton" class="review-icon-button" onclick="askReload()" title="保存并同步最新页面" aria-label="刷新工作台"><span data-review-icon="RefreshCw"></span></button>
+    <button id="reload" class="review-icon-button" onclick="askReload()" title="保存并同步最新页面" aria-label="刷新工作台"><span data-review-icon="RefreshCw"></span></button>
     <button id="localFallback" onclick="showLocalFallback()" hidden>本地工作台</button>
   </div>
   <span class="footer-spacer"></span>
   <div class="footer-actions">
     <button id="exportOutput" class="review-secondary-action" onclick="exportWorkbench()"><span data-review-icon="Download"></span><span id="exportLabel">导出 PPT</span></button>
     <button id="pageDispatch" class="review-secondary-action" onclick="dispatchFeedback('page')" hidden><span data-review-icon="MessageSquare"></span><span>修改本页</span></button>
-    <button class="review-primary-action" onclick="showSubmit()"><span data-review-icon="Send"></span><span>提交整套修改</span></button>
+    <button id="deckDispatch" class="review-primary-action" onclick="showSubmit()"><span data-review-icon="Send"></span><span id="deckDispatchLabel">提交整套修改</span></button>
   </div>
 </footer>
 <span id="message" role="status" aria-live="polite"></span>
@@ -389,11 +397,15 @@ dialog textarea{width:100%;min-height:96px;font:inherit;padding:8px;border:1px s
 </dialog>
 
 <dialog id="submitDialog">
-  <h2>整套修改任务</h2>
+  <h2 id="submitDialogTitle">整套修改任务</h2>
   <p id="stats"></p>
+  <div id="templateNameSection" hidden style="margin-bottom:8px">
+    <label for="templateNameInput" style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--dsw-alias-label-secondary)">模板名称（全部通过时必填）</label>
+    <input id="templateNameInput" style="width:100%;height:32px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)" placeholder="例如：Allianz Trade 规范模板">
+  </div>
   <textarea id="overall" placeholder="整套补充意见（可选）"></textarea>
   <div class="tools">
-    <button class="primary" onclick="submitBatch()">提交整套修改任务</button>
+    <button id="submitBatchBtn" class="primary" onclick="submitBatch()">提交整套修改任务</button>
     <button onclick="document.querySelector('#submitDialog').close()">返回</button>
   </div>
   <p id="submitMessage"></p>
@@ -489,6 +501,7 @@ const tagLabel=t=>TAG_NAMES[t]||'元素';
 
 const state=Object.fromEntries(data.pages.map(p=>[p.key,{
   feedback:'',
+  decision:'pass',
   rewrite_elements:[],
   notes:p.notes||'',
   annotations:[],
@@ -501,6 +514,38 @@ const state=Object.fromEntries(data.pages.map(p=>[p.key,{
   pending_save:null,
   task:null
 }]));
+
+function updateTemplateDecisionUI(){
+  if(data.route!=='template')return;
+  const p=page(),s=state[p.key];
+  const dec=s.decision||((s.feedback.trim()||s.annotations.length)?'revise':'pass');
+  s.decision=dec;
+  const sec=$('#templateDecisionSection');
+  if(sec)sec.setAttribute('data-decision',p.key);
+  const btnPass=$('#btnDecisionPass'),btnRevise=$('#btnDecisionRevise'),btnDiscard=$('#btnDecisionDiscard');
+  if(btnPass){
+    btnPass.classList.toggle('active',dec==='pass');
+    btnPass.setAttribute('data-choice','pass');
+  }
+  if(btnRevise){
+    btnRevise.classList.toggle('active',dec==='revise');
+    btnRevise.setAttribute('data-choice','revise');
+  }
+  if(btnDiscard){
+    btnDiscard.classList.toggle('active',dec==='discard');
+    btnDiscard.setAttribute('data-choice','discard');
+  }
+}
+function setTemplateDecision(choice){
+  const p=page(),s=state[p.key];
+  s.decision=choice;
+  if(choice==='revise'&&!s.feedback.trim()){
+    $('#feedback').focus();
+  }
+  updateTemplateDecisionUI();
+  updateRail();
+  status();
+}
 const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>((window.crypto&&crypto.randomUUID)?crypto.randomUUID():'f'+Math.random().toString(16).slice(2)+Date.now().toString(16));
 function note(text,kind){
@@ -639,9 +684,20 @@ function setMode(mode){
 
 function railClass(i,p){
   const s=state[p.key];
-  return s.save_status+(i===index?' active':'')+(updatedPages.has(p.key)?' updated':'');
+  let statusClass = s.save_status;
+  if(data.route==='template'){
+    if(s.decision==='discard') statusClass='error';
+    else if(s.decision==='revise'||s.feedback.trim()||s.annotations.length) statusClass='pending';
+    else statusClass='clean';
+  }
+  return statusClass+(i===index?' active':'')+(updatedPages.has(p.key)?' updated':'');
 }
 function railTagText(s){
+  if(data.route==='template'){
+    if(s.decision==='discard')return '舍弃';
+    if(s.decision==='revise'||s.feedback.trim()||s.annotations.length)return '返修';
+    return '';
+  }
   return (s.annotations.length?s.annotations.length+'框 ':'')+(s.svg_edits.length?s.svg_edits.length+'改':'');
 }
 function clearRailDropCue(){
@@ -1362,6 +1418,7 @@ async function render(){
   syncHash();   // 切页/换页都记下位置，重新加载后还停在这一页
   $('#title').textContent=(index+1)+' / '+data.pages.length+' · '+p.title;
   $('#feedback').value=s.feedback;
+  updateTemplateDecisionUI();
   const updated=updatedPages.has(p.key);
   $('#updatedNote').hidden=!updated;
   $('#updatedNote').textContent=updated?'这一页已有新版本。':'';
@@ -1423,7 +1480,14 @@ async function togglePrevious(){
     assetFor(previous?p.previous:p.png,previous?undefined:p.version).then(url=>{if(url)$('#slide').src=url});
   }
 }
-$('#feedback').oninput=e=>{state[page().key].feedback=e.target.value;autoState()};
+$('#feedback').oninput=e=>{
+  state[page().key].feedback=e.target.value;
+  if(data.route==='template'&&e.target.value.trim()){
+    state[page().key].decision='revise';
+    updateTemplateDecisionUI();
+  }
+  autoState();
+};
 $('#notes').oninput=e=>{state[page().key].notes=e.target.value;status()};
 $('#allowRewrite').onchange=()=>scheduleDraft();
 $('#regionNote').oninput=()=>scheduleDraft();
@@ -2122,6 +2186,70 @@ async function exportWorkbench(){
 async function dispatchFeedback(scope){
   if(dispatchBusy)return false;
   if(!$('#regionDialog').hidden&&$('#regionNote').value.trim())saveRegion();
+  if(data.route==='template'){
+    dispatchBusy=true;
+    try{
+      const overall=scope==='deck'?$('#overall').value.trim():'';
+      const numChanged=data.pages.filter(p=>changed(p)||state[p.key].decision==='discard'||state[p.key].decision==='revise').length;
+      const allPass=numChanged===0;
+      const tInput=$('#templateNameInput');
+      const templateName=(tInput?tInput.value.trim():'')||data.template_name||data.project||'';
+      if(allPass&&!templateName){
+        note('全部版式通过时必须填写模板名称','error');
+        return false;
+      }
+      const layouts={};
+      for(const p of data.pages){
+        const s=state[p.key];
+        const isChanged=changed(p);
+        const dec=s.decision||(isChanged?'revise':'pass');
+        layouts[p.key]={
+          approved:dec==='pass',
+          decision:dec,
+          custom_feedback:s.feedback?s.feedback.trim():''
+        };
+      }
+      const passedCount=data.pages.filter(p=>layouts[p.key].decision==='pass').length;
+      const revisedCount=data.pages.filter(p=>layouts[p.key].decision==='revise').length;
+      const discardedCount=data.pages.filter(p=>layouts[p.key].decision==='discard').length;
+      const payload={
+        review_id:data.review_id,
+        submission_action:allPass?'approve_all':'submit_batch',
+        approved:allPass,
+        all_approved:allPass,
+        template_name:templateName,
+        overall_feedback:overall,
+        layouts:layouts,
+        provenance:{
+          source:'template_review_page',
+          transport:(review&&review.transport)||'none',
+          surface:'planners-ppt-hell/template',
+          submitted_at:new Date().toISOString()
+        }
+      };
+      const wake={
+        unit:'整批',
+        text:allPass
+          ? `模板审阅：${data.pages.length} 个 Layout 全部通过（模板名「${templateName}」）—— 可以发布模板库了。`
+          : `模板审阅：${passedCount} 通过${revisedCount?' / '+revisedCount+' 返修':''}${discardedCount?' / '+discardedCount+' 舍弃':''} —— 按反馈重建模板，其余不要动。`
+      };
+      if(!review){
+        note('本页只读：没有连上审阅宿主，反馈存不进去','warn');
+        return false;
+      }
+      await review.write(payload);
+      if(wake){
+        try{await review.wake(wake)}catch(e){}
+      }
+      note(allPass?'已全部通过并提交！可在对话框中确认是否正式入库':'修改意见已提交，模型将按反馈重建模板','ok');
+      return true;
+    }catch(err){
+      note('保存失败：'+err.message,'error');
+      return false;
+    }finally{
+      dispatchBusy=false;
+    }
+  }
   if(scope==='page'&&review?.transport!=='postMessage'){note('此宿主仅支持整套修改任务','error');return false}
   const overall=scope==='deck'?$('#overall').value.trim():'';
   const targets=pendingDispatch?data.pages.filter(p=>Object.hasOwn(pendingDispatch.pages,p.key)):
@@ -2339,7 +2467,8 @@ function pendingWork(){
 }
 async function askReload(){
   if(syncBusy)return false;
-  syncBusy=true;$('#reloadButton').disabled=true;$('#reloadButton').setAttribute('aria-busy','true');
+  const btn=$('#reload')||$('#reloadButton');
+  syncBusy=true;if(btn){btn.disabled=true;btn.setAttribute('aria-busy','true');}
   const railScroll=$('#rail').scrollTop,panelScroll=$('#reviewPanel').scrollTop;
   try{
     note('正在保存并同步…');
@@ -2350,14 +2479,33 @@ async function askReload(){
     note('已同步最新页面','ok');return true;
   }finally{
     $('#rail').scrollTop=railScroll;$('#reviewPanel').scrollTop=panelScroll;
-    syncBusy=false;$('#reloadButton').disabled=false;$('#reloadButton').removeAttribute('aria-busy');
+    syncBusy=false;if(btn){btn.disabled=false;btn.removeAttribute('aria-busy');}
   }
 }
-function confirmHistoricalRestore(){if($('#historyRevision').value!==page().revision)$('#restoreDialog').showModal()}
 function showSubmit(){
   endInlineTextEdit(true);
   if(!$('#regionDialog').hidden&&$('#regionNote').value.trim())saveRegion();
-  $('#stats').textContent=data.pages.filter(p=>changed(p)).length+' 页有修改要求';
+  if(data.route==='template'){
+    $('#submitDialogTitle').textContent='提交模板审阅';
+    const numChanged=data.pages.filter(p=>changed(p)||state[p.key].decision==='discard'||state[p.key].decision==='revise').length;
+    $('#templateNameSection').hidden=false;
+    const tInput=$('#templateNameInput');
+    if(tInput&&!tInput.value)tInput.value=data.template_name||data.project||'';
+    if(numChanged===0){
+      $('#stats').textContent='所有版式均已通过，无修改要求（整套提交无意见，将直接准备入库）';
+      $('#submitBatchBtn').textContent='全部通过并提交';
+    } else {
+      const numDiscard=data.pages.filter(p=>state[p.key].decision==='discard').length;
+      const numRevise=data.pages.filter(p=>changed(p)||state[p.key].decision==='revise').length;
+      $('#stats').textContent=`${data.pages.length-numChanged} 个通过 / ${numRevise} 个返修${numDiscard?` / ${numDiscard} 个舍弃`:''}`;
+      $('#submitBatchBtn').textContent='提交批次反馈';
+    }
+  } else {
+    $('#submitDialogTitle').textContent='整套修改任务';
+    $('#templateNameSection').hidden=true;
+    $('#stats').textContent=data.pages.filter(p=>changed(p)).length+' 页有修改要求';
+    $('#submitBatchBtn').textContent='提交整套修改任务';
+  }
   $('#submitDialog').showModal();
 }
 $('#overall').oninput=()=>scheduleDraft();
@@ -2500,6 +2648,17 @@ function sayReadOnly(why){
 }
 (async function boot(){
   $('#exportLabel').textContent=data.route==='video'?'输出视频画面':'导出 PPT';
+  if(data.route==='template'){
+    $('#exportOutput').hidden=true;
+    $('#pageDispatch').hidden=true;
+    $('#localFallback').hidden=true;
+    $('#templateDecisionSection').hidden=false;
+    $('#feedbackHeading').textContent='版式反馈要求';
+    $('#feedback').placeholder='对此版式的反馈要求（选择返修时填写）…';
+    if($('#deckDispatchLabel'))$('#deckDispatchLabel').textContent='提交模板审阅';
+    document.title=(data.project?data.project+' · ':'')+'模板人工审阅工作台';
+    $('#project').textContent=(data.project||'模板版式')+' · 模板审阅';
+  }
   const fromHash=pageOrder.indexOf(pageKeyFromHash());
   if(fromHash>=0)index=fromHash;      // 重新加载回到原来那一页（hash 是唯一来源）
   render();sizePreview();drawPulse();
@@ -2513,14 +2672,22 @@ function sayReadOnly(why){
     sayReadOnly(window.ReviewBridge
       ? '连不上审阅宿主（握手未落地）：本页只读 —— 内容可以看，反馈存不进去。'
       : '没有加载到审阅桥：改动尚未保存。');
-    $('#localFallback').hidden=false;
+    if(data.route!=='template')$('#localFallback').hidden=false;
     return;
   }
   const can=applyUploadCapability();
-  $('#bridgeState').textContent='已连接工作台（'+review.transport+'）'
-    +(can?' · 可上传图片':' · 这个宿主不支持上传');
-  // Initial rail images have no src. Rebuild now that authenticated bridge assets are available.
+  $('#bridgeState').textContent=data.route==='template'
+    ? '已连接审阅宿主（'+review.transport+'）'
+    : ('已连接工作台（'+review.transport+'）'+(can?' · 可上传图片':' · 这个宿主不支持上传'));
   drawRail();
+  if(data.route==='template'){
+    canCommand=false;
+    workbenchReady=true;
+    document.documentElement.dataset.workbenchReady='true';
+    updateTemplateDecisionUI();
+    review.on('changed',()=>onHostChanged());
+    return;
+  }
   // 草稿：能力是「宿主支持 ∩ surface 声明」。读回没提交的东西，然后重画一次让它们显出来
   // （直改要靠 `mountInlineSvg()` 里的 `replaySvgEditsOnDom()` 重放）。
   canDraft=DRAFT_REL!==''&&Array.isArray(review.capabilities)&&review.capabilities.indexOf('draft')>=0;

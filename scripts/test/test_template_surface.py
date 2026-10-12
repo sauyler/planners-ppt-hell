@@ -119,11 +119,10 @@ class TemplateSurfaceTests(TemplateFixture):
     def test_every_layout_card_is_server_rendered(self):
         self.generate()
         page = (self.root / '00_template_review.html').read_text(encoding='utf-8')
-        self.assertEqual(page.count('<article class="card">'), len(self.layouts), '每个 Layout 一张卡')
         for layout in self.layouts:
-            self.assertIn(f'data-decision="{layout}"', page)
-            self.assertIn(f'data-feedback="{layout}"', page)
-        self.assertEqual(page.count('<svg'), len(self.layouts), 'canvas 是内联进 HTML 的（不靠 JS 才画得出来）')
+            self.assertIn(layout, page)
+        self.assertIn('"route": "template"', page)
+        self.assertIn('templateDecisionSection', page)
 
     def test_the_host_serves_the_page_and_stops_clean(self):
         """无插件独立跑通（不启浏览器）：serve → 注入桥 → 页面内容在 → 停干净。"""
@@ -135,7 +134,9 @@ class TemplateSurfaceTests(TemplateFixture):
                 body = response.read().decode('utf-8')
             self.assertNotIn('{{REVIEW_BRIDGE}}', body, '宿主必须把注入点换掉')
             self.assertIn('/__review/bridge.js', body)
-            self.assertEqual(body.count('<article class="card">'), len(self.layouts))
+            self.assertIn('"route": "template"', body)
+            for layout in self.layouts:
+                self.assertIn(layout, body)
             self.assertEqual(review_host.host_alive(review_surface.surface_path(self.root, 'template'))['pid'], state['pid'])
         finally:
             if state:

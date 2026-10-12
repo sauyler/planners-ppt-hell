@@ -554,8 +554,9 @@ def _attach_template_intake(result,intake):
         entry['message']=('这份模板反馈没通过校验：'+'；'.join(intake['errors'])+'。'
                           '页面上应该已经拦过同样的规则；对不上就重新生成审阅页再提交。')
     elif summary['all_pass']:
-        entry['message']=('模板 '+summary['template_name']+' 全部 Layout 通过：可以 '
-                          'template_library.py publish 入库了。')
+        entry['message']=('模板「'+summary['template_name']+'」全部 Layout 通过且无修改意见：'
+                          '请在对话框向用户确认是否正式入库，用户确认后运行 template_library.py publish 入库。')
+        entry['next_step_zh']='向用户确认是否将模板「'+summary['template_name']+'」正式入库。'
     else:
         entry['message']=('模板审阅：通过 '+str(len(summary['passed']))+' 个 / 返修 '
                           +str(len(summary['revision_layouts']))+' 个 / 舍弃 '
