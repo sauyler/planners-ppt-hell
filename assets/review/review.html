@@ -1006,6 +1006,7 @@ function mountInlineSvg(p){
   });
   // Keep #slide in layout for test assertions & fallback, while showing live interactive SVG on top
   $('#slide').style.opacity='0.01';
+  sizePreview();
   if(!previous)replaySvgEditsOnDom();
   updateToolbarSelection();
 }
@@ -2516,7 +2517,16 @@ async function submitBatch(){
 }
 function sizePreview(){
   const stage=$('.stage'),box=$('#preview');
-  box.style.width=Math.max(80,Math.min(stage.clientWidth-16,(stage.clientHeight-56)*16/9))+'px';
+  const vb=currentSvgRoot()?.viewBox?.baseVal;
+  const ratio=vb&&vb.width>0&&vb.height>0?vb.width/vb.height:($('#slide').naturalWidth/$('#slide').naturalHeight||16/9);
+  box.style.aspectRatio=String(ratio);
+  const head=$('.stage-head');
+  const availableHeight=stage.clientHeight-24-(head?head.getBoundingClientRect().height+8:0);
+  const width=Math.max(80,Math.min(stage.clientWidth-24,availableHeight*ratio));
+  box.style.flexShrink='0';
+  box.style.maxHeight='none';
+  box.style.width=width+'px';
+  box.style.height=(width/ratio)+'px';
   updateHighlightOverlay();
   positionInlineCanvasEditor();
   positionElementToolbar();
@@ -2570,7 +2580,9 @@ $('#preview').onpointermove=e=>{
   }
   const pr=$('#preview').getBoundingClientRect();
   if(!pr.width||!pr.height)return;
-  const scaleX=1920/pr.width,scaleY=1080/pr.height;
+  const vb=currentSvgRoot()?.viewBox?.baseVal;
+  if(!vb||!vb.width||!vb.height)return;
+  const scaleX=vb.width/pr.width,scaleY=vb.height/pr.height;
   const newDx=dragState.origDx+(e.clientX-dragState.startX)*scaleX;
   const newDy=dragState.origDy+(e.clientY-dragState.startY)*scaleY;
   const rec=getOrCreateEditRecord(dragState.el);

@@ -9,9 +9,7 @@
 - **默认标尺示例**：`1920 × 1080 px` 对应 `13.333 × 7.5 in` 时：
   - **1 SVG px = 0.5 pt**（`FONT_SCALE = 0.5`）
   - `44px = 22pt`（主标题）｜`28px = 14pt`（卡片主标题）｜`20px = 10pt`（正文）｜`14px = 7pt`（辅助标签/图注）
-- **字号硬下限**：
-  - `讲` 页（现场投屏）：任何可见 `<text>` **≥ 18px（9pt）**
-  - `读` 页（商业提案/留档报告）：正文 **≥ 16px（8pt）**，角标与数据来源底线 **≥ 12px（6pt）**
+字号技术下限由检查器按页面 mode 执行；实际阅读效果由页面看图判断，不以最低可转换字号作为设计推荐。
 
 控制器使用 `--auto-size --match-aspect`，画幅由冻结 SVG 推导；不要把上述默认标尺当作所有模板的固定坐标或字号。具体主题采用其当前 SPEC / tokens。
 
@@ -43,7 +41,7 @@
 
 ## 3. 转换器明确禁用的特性（会被 `validate_svg_layout.py` 拦截）
 
-以下 SVG 特性在 PowerPoint 原生形状模型中没有等价物，**严禁在 `slides` 出口使用**：
+以下为当前转换器的实现限制，仅约束 `slides`；不代表 PowerPoint 本身无法表达类似效果。具体能力以实现与测试为准：
 
 - **禁用标签**：`foreignObject`、`filter`（如 `feDropShadow`、`feGaussianBlur`，阴影靠浅色底差或底层偏移 `<rect>` 表达）、`use`、`marker`（箭头一律用显式 `<polygon>` 或 `<path>` 绘制）、`mask`、`animate`、`animateTransform`。
 - **禁用属性**：`textLength`、`lengthAdjust`、`marker-start`、`marker-mid`、`marker-end`。

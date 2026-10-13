@@ -1,6 +1,6 @@
 ---
 name: planners-ppt-hell
-description: 制作与持续修改 SVG 页面工作台，从逐页内容稿或 video-idea-system 的 visual-plan.json 与素材出发，输出可编辑 PPT 或固定版本的视频画面快照。用于页面返修、视觉参考复用及需人工确认的模板提炼入库；复杂原始材料先交 planners-bypage 展开。
+description: 制作与持续修改 SVG 页面工作台，从逐页内容稿或 video-idea-system 的 visual-plan.json 与素材出发，输出可编辑 PPT 或固定版本的视频画面快照。用于直接材料或生产包的页面制作、返修、视觉参考复用及需人工确认的模板提炼入库。
 ---
 
 # Planner's PPT Hell
@@ -12,16 +12,16 @@ SVG 工作台持续存在。用户改字与模型候选共用版本存储；PPT 
 
 ## 1. 接收
 
-读 [00_pipeline_controller.md](references/workflow/00_pipeline_controller.md)，初始化或恢复同一项目。
-幻灯片优先接收 Bypage 逐页稿；复杂原始资料先调用 planners-bypage。简单单源且无需展开时才用轻量底稿，见 [02_content_stage.md](references/workflow/02_content_stage.md)。
-视频接收现有 visual-plan.json 与 assets，由初始化适配，screen ID 保持不变；见 [03_video_route.md](references/workflow/03_video_route.md)。
+职责与接口见 [架构](references/architecture.md)。读 [00_pipeline_controller.md](references/workflow/00_pipeline_controller.md)，初始化或恢复同一项目。
+幻灯片可接收 Bypage 逐页稿，也可从用户材料、已有稿件或需求直接整理内容；按复杂度调用 Bypage，不把它设为前置门。见 [02_content_stage.md](references/workflow/02_content_stage.md)。
+视频可适配 visual-plan.json 与 assets，也可直接接收上屏稿或材料；已有 screen ID 保持不变。见 [03_video_route.md](references/workflow/03_video_route.md)。
 沿用 Bypage 的 canonical 来源索引和已绑定的事实核查；内容改写后的核查时机与范围见内容输入文档，不把原 audit 扩大为新页面已核查。
 结束条件：来源可读、稳定页面身份可定位、资产已登记且没有静默遗漏。
 
 ## 2. 定方向
 
 一次确认画幅与视觉来源，用户已指明的直接执行。共同秩序写入 _internal/01_content/design_direction.md。
-通用判断读 [style_system.md](references/domain/style_system.md)；选择信息关系时读 [layout_taxonomy.md](references/domain/layout_taxonomy.md)。颜色、字号、坐标、底壳和原语来自所选模板 SPEC.md / tokens.css 或视频主题，不把某个模板的数值当通用规范。
+通用判断读 [style_system.md](references/domain/style_system.md)；选择信息关系时读 [layout_taxonomy.md](references/domain/layout_taxonomy.md)。模板含义以 [模板契约](references/contracts/template_package.md) 为准；查看所选视觉样张与主题定义，具体构图由当前内容决定。
 幻灯片复用参考、选择库模板或提炼入库时读 [01_template_intake.md](references/workflow/01_template_intake.md)；只有入库分支需要模板人工确认。
 结束条件：方向和画幅明确，必要的源参考已经实际查看。
 

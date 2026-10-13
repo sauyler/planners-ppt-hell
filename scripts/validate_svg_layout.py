@@ -37,7 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "template"))
-from canvas_frame import FRAME_H, FRAME_H_INT, FRAME_VIEWBOX, FRAME_W, FRAME_W_INT  # noqa: E402
+from canvas_frame import Canvas, project_frame, FRAME_H, FRAME_H_INT, FRAME_VIEWBOX, FRAME_W, FRAME_W_INT  # noqa: E402
 try:
     from layout_canvas import TEMPLATE_CANVAS_VERSION, locked_sha256  # noqa: E402
 except ImportError:
@@ -450,10 +450,11 @@ def line_coords(node, parent_map):
     )
 
 
-def outside_canvas(box, tolerance=5.0):
+def outside_canvas(box, tolerance=5.0, frame=None):
     """同一套画布容差，rect／image／text 共用一份，免得三条检查各说一套话。"""
     x, y, w, h = box
-    return (x + w > CANVAS_W + tolerance or y + h > CANVAS_H + tolerance
+    frame = frame or Canvas()
+    return (x + w > frame.width + tolerance or y + h > frame.height + tolerance
             or x < -tolerance or y < -tolerance)
 
 
@@ -463,9 +464,10 @@ def intersects(a, b):
     return ax < bx + bw and ax + aw > bx and by < ay + ah and by + bh > ay
 
 
-def outside_safe_margin(box, margin=MARGIN):
+def outside_safe_margin(box, margin=MARGIN, frame=None):
     x, y, w, h = box
-    return x < margin or y < margin or x + w > CANVAS_W - margin or y + h > CANVAS_H - margin
+    frame = frame or Canvas()
+    return x < margin or y < margin or x + w > frame.width - margin or y + h > frame.height - margin
 
 
 def box_to_dict(box):
@@ -476,9 +478,10 @@ def text_content(node):
     return TEXT_RE.sub(" ", "".join(node.itertext())).strip()
 
 
-def is_full_canvas_rect(box):
+def is_full_canvas_rect(box, frame=None):
     x, y, w, h = box
-    return x <= 5 and y <= 5 and w >= CANVAS_W * 0.95 and h >= CANVAS_H * 0.95
+    frame = frame or Canvas()
+    return x <= 5 and y <= 5 and w >= frame.width * 0.95 and h >= frame.height * 0.95
 
 
 def issue(severity, code, message, target=None, detail=None, hint=None):
@@ -557,7 +560,8 @@ def fidelity_component_node_errors(component, node):
 
 # ── Per-file validation ──────────────────────────────────────────
 
-def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False, route=DEFAULT_ROUTE):
+def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False, route=DEFAULT_ROUTE, frame=None):
+    frame = frame or project_frame(project_root_of(path))
     content = Path(path).read_text(encoding="utf-8-sig")
     uncommented = XML_COMMENT_RE.sub("", content)
     root = ET.fromstring(content)
@@ -570,12 +574,11 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
     slides = route != "video"
     skipped = skipped_rules_for_route(route)
 
-    # ── Canvas contract（取值来自画幅 owner canvas_frame，不自己写数字） ──
-    if root.get("width") != str(FRAME_W_INT) or root.get("height") != str(FRAME_H_INT):
-        E("INVALID_CANVAS_SIZE",
-          f'SVG root must use width="{FRAME_W_INT}" and height="{FRAME_H_INT}"', target="svg_root")
-    if root.get("viewBox") != FRAME_VIEWBOX:
-        E("INVALID_VIEWBOX", f'SVG root must use viewBox="{FRAME_VIEWBOX}"', target="svg_root")
+    # Project canvas is a selected input, not a validator-owned constant.
+    if root.get("width") != str(frame.width) or root.get("height") != str(frame.height):
+        E("INVALID_CANVAS_SIZE", f'SVG root must use width="{frame.width}" and height="{frame.height}"', target="svg_root")
+    if root.get("viewBox") != frame.viewbox:
+        E("INVALID_VIEWBOX", f'SVG root must use viewBox="{frame.viewbox}"', target="svg_root")
 
     # ── SVG → PPT compatibility (slides route only) ──
     if slides:
@@ -768,7 +771,7 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
 
         # ── Safe margin: advisory only (full-bleed art direction is legitimate) ──
         for tid_a, _, tbox, _ in text_boxes:
-            if tbox[2] > 0 and outside_safe_margin(tbox, margin):
+            if tbox[2] > 0 and outside_safe_margin(tbox, margin, frame):
                 I("OUTSIDE_SAFE_MARGIN",
                   f"Text sits outside the {margin:.0f}px safe margin — verify on the PNG",
                   target=tid_a, detail=box_to_dict(tbox))
@@ -787,7 +790,7 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
                 if op_v * fop_v < 0.75:
                     continue
                 rbox = rect_box(r_node, parent_map)
-                if not is_full_canvas_rect(rbox) and rbox[2] >= 20.0 and rbox[3] >= 16.0:
+                if not is_full_canvas_rect(rbox, frame) and rbox[2] >= 20.0 and rbox[3] >= 16.0:
                     opaque_rects.append((dom_order.get(r_node, 0), rbox))
 
             # Collect horizontal and vertical divider segments from <line> and thin <rect>
@@ -863,7 +866,7 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
             for r_idx, r_node in enumerate(visible_rect_nodes, 1):
                 rbox = rect_box(r_node, parent_map)
                 rx, ry, rw, rh = rbox
-                if is_full_canvas_rect(rbox):
+                if is_full_canvas_rect(rbox, frame):
                     continue
                 if 36.0 <= rw <= 1760.0 and 22.0 <= rh <= 860.0:
                     container_rects.append((f"rect_{r_idx}", rbox))
@@ -895,27 +898,27 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
     # ── Nothing may leave the canvas: rect, image, and text alike ──
     for rect_node in visible_rect_nodes:
         rbox = rect_box(rect_node, parent_map)
-        if rbox[2] > 0 and rbox[3] > 0 and outside_canvas(rbox):
+        if rbox[2] > 0 and rbox[3] > 0 and outside_canvas(rbox, frame=frame):
             x, y, w, h = rbox
             E("ELEMENT_OUTSIDE_CANVAS",
               f"<rect> at ({x:.0f},{y:.0f}) {w:.0f}x{h:.0f} extends beyond canvas "
-              f"{CANVAS_W:.0f}x{CANVAS_H:.0f}",
+              f"{frame.width}x{frame.height}",
               target="svg_structure", detail=box_to_dict(rbox))
     for img_node in image_nodes:
         ibox = image_box(img_node, parent_map)
-        if ibox[2] > 0 and ibox[3] > 0 and outside_canvas(ibox):
+        if ibox[2] > 0 and ibox[3] > 0 and outside_canvas(ibox, frame=frame):
             x, y, w, h = ibox
             E("IMAGE_OUTSIDE_CANVAS",
               f"<image> at ({x:.0f},{y:.0f}) {w:.0f}x{h:.0f} extends beyond canvas",
               target="svg_structure", detail=box_to_dict(ibox))
     for idx, node in enumerate(text_nodes, 1):
         tbox = estimate_text_box(node, parent_map, stylesheet_rules)
-        if tbox[2] > 0 and outside_canvas(tbox):
+        if tbox[2] > 0 and outside_canvas(tbox, frame=frame):
             x, y, w, h = tbox
             snippet = "".join(node.itertext()).strip()[:30]
             E("TEXT_OUTSIDE_CANVAS",
               f"<text> at ({x:.0f},{y:.0f}) {w:.0f}x{h:.0f} extends beyond canvas "
-              f"{CANVAS_W:.0f}x{CANVAS_H:.0f}: '{snippet}…'",
+              f"{frame.width}x{frame.height}: '{snippet}…'",
               target=f"text_{idx}", detail=box_to_dict(tbox),
               hint="重排、断行或换表达，不要靠缩字塞回去；框是估算的，先在渲染 PNG 上确认这一处。")
 
@@ -955,6 +958,8 @@ def main():
         description="SVG → PPT conversion checks and real layout defects. No design-style heuristics."
     )
     parser.add_argument("svg_dir", help="Directory containing SVG files")
+    parser.add_argument("--width", type=int, help="Explicit canvas width, paired with --height (frozen output)")
+    parser.add_argument("--height", type=int, help="Explicit canvas height, paired with --width")
     parser.add_argument("--margin", type=float, default=MARGIN, help=f"Advisory safe margin in px (default: {MARGIN})")
     parser.add_argument("--output", default="", help="Output JSON path (default: stdout)")
     parser.add_argument("--file", default="", help="Single SVG file to validate (alternative to svg_dir)")
@@ -990,9 +995,15 @@ def main():
         return 1
 
     route_value, route_source = resolve_route(args.route, svg_files[0])
+    if (args.width is None) != (args.height is None):
+        parser.error("--width and --height must be supplied together")
+    try:
+        frame = Canvas(args.width, args.height) if args.width is not None else None
+    except ValueError as exc:
+        parser.error(str(exc))
 
     reports = [validate_file(f, page_mode=args.page_mode, margin=args.margin,
-                             quick_mode=args.self_check, route=route_value)
+                             quick_mode=args.self_check, route=route_value, frame=frame)
                for f in svg_files]
 
     skipped = skipped_rules_for_route(route_value)

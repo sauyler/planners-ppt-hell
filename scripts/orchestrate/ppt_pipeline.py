@@ -17,6 +17,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import review_surface
+from canvas_frame import project_frame, frame_from_manifest
 from review_feedback import (APPLIED_EDITS_FILE, ack_human_edit, consume, content_key,
                              human_edit_state, human_edits)
 import template_feedback
@@ -53,6 +54,8 @@ def validator_argv(root, m, key, mode, report=None, source=None, route_override=
         svg=Path(page['svg_path'])
     argv=[sys.executable,str(SCRIPTS/'validate_svg_layout.py'),str(svg.parent),'--file',str(svg),
           '--page-mode',mode,'--route',route_override or route(root)]
+    frame=frame_from_manifest(m)
+    argv+=['--width',str(frame.width),'--height',str(frame.height)]
     if report: argv+=['--output',str(report)]
     registry=root/PROJECT/'fidelity_template/template_registry.json'
     if (m.get('template_intake',{}).get('mode')=='fidelity' and route(root)=='slides'
@@ -99,7 +102,7 @@ def layout_check(root, keys, export_snapshot=None):
     """
     if export_snapshot:
         # Snapshot SVG/assets are intrinsic inputs; a live template registry is not frozen evidence.
-        m={};pages={p['page_key']:p.get('input',{}) for p in export_snapshot['pages']}
+        m={'canvas':export_snapshot.get('canvas')};pages={p['page_key']:p.get('input',{}) for p in export_snapshot['pages']}
     else:
         m=manifest(root);pages={p['page_key']:p for p in content(root)['pages']}
     problems=[]
@@ -183,7 +186,7 @@ def check(root, keys):
         if k not in selected: continue
         try:
             v=page_version(root,p)
-            if rendered(root,k,v):
+            if (rendered(root,k,v) and frame_from_manifest(read(root/VALIDATION/(k+'.json'),{})) == frame_from_manifest(m)):
                 rec=read(root/VALIDATION/(k+'.json'),{})
                 results.append({'page':k,'status':'unchanged','render_token':digest(rec),
                                 'issues':rec.get('validator',{})}); continue
@@ -207,7 +210,7 @@ def check(root, keys):
                 write(root/VALIDATION/(k+'-validator.json'),data)
             rec={'version':v,'errors':data.get('summary',{}).get('errors',1) if not val.returncode else max(1,data.get('summary',{}).get('errors',1)),
                 'png_sha256':provenance['png_sha256'],'validator':data,
-                'revision':page['revision'],'renderer':provenance['renderer']}
+                'revision':page['revision'],'renderer':provenance['renderer'],'canvas':frame_from_manifest(m).as_dict()}
             write(root/VALIDATION/(k+'.json'),rec)
             # 版本换了但图没换（例如只改了 notes）：把上一条看图记录承接过来，不要求重看。
             carried=carry_inspection(root,k,old.get('png_sha256'),rec)
@@ -245,7 +248,7 @@ def inspect(root,k,token,note,first_glance,design_check,position,verdict):
     if not note.strip(): raise ValueError('Record concrete visual findings after viewing PNG')
     if not first_glance.strip(): raise ValueError('Name the one element the eye lands on first (--first-glance)')
     if not design_check.strip(): raise ValueError('State which design rules you checked against and any violation found (--design-check)')
-    try: box=parse_position(position)
+    try: box=parse_position(position,project_frame(root))
     except ValueError as exc: raise ValueError(str(exc)+'；'+WATCH_THE_BIG_PNG)
     records=read(root/VALIDATION/'inspections.json',{})
     records[k]={'render_token':token,'note':note,'first_glance':first_glance,

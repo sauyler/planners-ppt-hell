@@ -35,3 +35,9 @@ PPT 导出只读快照 scenes；复核绑定 snapshot 与 PPTX 指纹，不比�
 slides 的实际输出、notes 和转换报告在 `_internal/06_ppt_output/<snapshot_id>/`，export 记录的 output_path 是证据；根 final_deck.pptx 只是兼容副本。同快照加锁并复用已验证文件。
 复核 `export-inspect --snapshot <同一snapshot.json> --previews <实际PPTX渲染PNG...> --note "<工具与发现>"`，绑定该 job 输出，不受后续 live 编辑或最新兼容副本替换影响。
 快照导出检查冻结 SVG/资产及冻结页级 mode；目前模板 registry / direction 并未随快照冻结，不用后来变化的 live registry 为旧快照背书，记录 template_verification=intrinsic_svg_only。严格品牌语义的额外复核需明确报告范围。
+
+
+## 项目画幅与独立输入
+
+机器画幅由 `page_manifest.json.canvas` 保存（width、height，正整数 SVG 像素）；初始化用 `--width` / `--height`，旧项目缺省沿用默认画幅。解析归 `canvas_frame.py`。快照冻结 canvas，选定快照的检查不读取后来变化的项目画幅；已有 SVG 要改画幅需提交新版本。
+`--source ... --route video` 的新项目记录 `input_kind=standalone`，未绑定脚本的快照记录 `content_binding=unbound`。它可用于画面制作与审阅，不等于已完成 Craft 的脚本/录音交接。已有 visual-plan 输入继续严格校验声明与脚本；绑定丢失不自动降级。

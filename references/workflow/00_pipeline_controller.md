@@ -8,8 +8,8 @@ python scripts/init_svg_project.py <project> --assets <pack>/assets --plan <pack
 python scripts/orchestrate/ppt_pipeline.py <project> next --json
 ```
 
-初始化两条路线互斥。已有项目恢复原目录，不重新初始化。仍识别 5.0 manifest；更早流程另建目录并核对旧反馈，不混用旧状态机。
-幻灯片先按 [内容输入](02_content_stage.md) 判断内容入口。复杂材料交 Bypage 得到逐页稿，再程序导入。视频保留 screen ID；包内图片必须被契约引用。素材库不等于交付包，不能删原素材来消除未引用错误。
+输入方式互斥；输出路线与输入来源分别选择。直接材料可用 `--source <稿件> --route slides|video --width <宽> --height <高>`；未指定尺寸沿用默认值。已有项目恢复原目录，不重新初始化。仍识别 5.0 manifest；更早流程另建目录并核对旧反馈，不混用旧状态机。
+幻灯片先按 [内容输入](02_content_stage.md) 判断内容入口。已有 Bypage 生产包则程序导入；直接材料按内容复杂度整理或调用 Bypage。视频保留 screen ID；包内图片必须被契约引用。素材库不等于交付包，不能删原素材来消除未引用错误。
 
 ## 定方向
 

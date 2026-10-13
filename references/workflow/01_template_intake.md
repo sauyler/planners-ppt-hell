@@ -1,22 +1,29 @@
-# 视觉来源与模板入库
+# 视觉参考与模板提取
 
-只用于幻灯片视觉身份；视频见 [视频路线](03_video_route.md)。一次确认自主设计、库模板、当次参考或提炼入库。已点名的执行，不静默默认。
+模板含义与包内容以 [模板契约](../contracts/template_package.md) 为准。先明确当前是使用参考，还是生产可复用模板；用户已说明时直接执行。
 
-## 复用或当次参考
+## 使用已有视觉来源
 
-库模板：python scripts/template/template_library.py list，然后 apply <project> --template-id <id>。
-外部参考预处理：python scripts/template/extract_template_pack.py <source> --project <project>。
-实际查看源页和提取事实，制作 tokens.css、skyline_shell.svg、primitives/*.svg、SPEC.md 与 anchors，格式见 references/contracts/template_package.md。具体数值继承参考与已确认方向，不强套通用色盘。
-渲染并查看原语。仅用于本次制作的参考无需先入库，继续 checkout 候选画页。
+- 自主设计：根据内容形成方向并试做，不要求先造模板。
+- 库模板：`python scripts/template/template_library.py list`，选择后 `apply <project> --template-id <id>`。查看 SPEC 与代表样张，按其已验证用途选用、重组原语。
+- 当次参考：实际查看图片/源页，记录要继承的特征，直接进入页面制作。需要提取文件时运行 `python scripts/template/extract_template_pack.py <source> --project <project>`；它只整理来源与候选材料，不等于已经生成有效模板。
+
+共同方向只记录本项目的视觉来源、复用方式与调整。需要严格复刻时明确对应样张；页面和素材不是逐项强制清单。
+
+## 提炼可复用模板
+
+1. **观察与选样**：实际查看来源，选出能表达视觉身份和不同页面任务的代表图。分清反复出现的共同特征与单张图的偶然内容；参考不足时缩小模板覆盖范围。
+2. **形成简短定义**：在候选 SPEC 中说明视觉身份、样张用途和可变化部分。保留原图作为主要视觉依据，只把确有复用价值的数值提入 tokens。
+3. **迁移试做**：先还原代表效果，再换真实内容试做，检验标题长度、图文体量和证据关系变化后的表现。计划覆盖完整方案时试做不同密度与任务；局部模板只验证其声明用途，不凑固定页数。
+4. **目标出口验证**：查看实际 PNG。PPT 样张还要试转 PPT 并查看真实 PPT 渲染，记录可编辑范围和失真；图表形状可编辑不等于原生数据图表可编辑。视频走 [视频提取](08_video_style_extraction_sop.md) 的结构与下游验证。有技术限制时调整实现或明确能力缺口，不把失败样张标成可用。
+5. **收敛候选包**：根据试做删掉无效规则和原语，保留视觉锚点、实现、适用说明与验证结果。模型推断的视觉特征与用户明确要求分开表述。
+6. **审阅与入库**：按下方现有接口展示当前包，消费用户对该版本的决定。
 
 ## 人工审阅与发布
-
-四件套与 legacy fidelity 各按当前格式审阅，不用旧 registry 协议假装四件套已通过。
 
 ```bash
 python scripts/orchestrate/ppt_pipeline.py <project> template-review
 python scripts/template/template_library.py publish <project> --template-id <id> --name '<名称>'
 ```
 
-作者在当前审阅面逐底壳/原语（legacy 是 layout）决定通过、舍弃或返修，全部通过填写模板名。发布消费同一 review_id、HTML 与包版本；修改任何包文件后重新审阅。
-同 ID 更新要显式 --replace；旧包保留在库 .history/<id>，不盲删。技术校验不能绕过人工确认。build_manifest 仅生成候选元数据，不赋予入库批准。
+四件套和 legacy 各按其格式审阅。作者逐底壳/原语（legacy 是 layout）决定通过、舍弃或返修，确认模板名称。发布版本与替换规则见模板契约。普通页面反馈与模板入库确认分开。

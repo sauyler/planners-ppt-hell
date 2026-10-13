@@ -104,8 +104,8 @@ def validate_pack_dir(pack_dir, check_manifest_hashes=False):
             issues.append(f"Missing required directory: {req_dir}/")
 
     primitives = sorted((pack_dir / "primitives").glob("*.svg")) if (pack_dir / "primitives").is_dir() else []
-    if len(primitives) < 5:
-        issues.append(f"Expected at least 5 SVG primitives in primitives/, found {len(primitives)}")
+    if not primitives:
+        issues.append("Expected at least 1 representative SVG in primitives/")
 
     anchors = sorted((pack_dir / "anchors").glob("*.png")) if (pack_dir / "anchors").is_dir() else []
     if len(anchors) < 1:

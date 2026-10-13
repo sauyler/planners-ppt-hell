@@ -1,19 +1,30 @@
-# 模板包契约
+# 模板定义与包契约
 
-四件套位于 _internal/00_project/template_pack，发布后库条目根等于完整包内容：
+模板是以视觉样张为核心、能迁移到新内容的设计语言，包含可复用页面解法与适用说明。它服务两处：提取时确定产物，制作时提供起点。
 
-- tokens.css：语义化颜色、字体、字号与间距变量。
-- skyline_shell.svg 与 assets：该主题底壳及可解析资产。
-- primitives/*.svg：完整可渲染的布局原语。
-- SPEC.md 与 anchors/*.png：主题标尺、原语用途与实际参考证据。
+## 设计内容
 
-validate_pack_dir 当前要求至少 5 个原语与 1 张 PNG 锚点；这些是包完整性约束，不是通用画面设计法。原语的画幅、坐标、配色、比例和横幅由主题决定。
-SVG 合法性、图片路径和转换能力按 svg_rules / svg_to_ppt_rules 校验，结构齐全不等于视觉正确。
+- **视觉样张**：保留可实际查看的原始参考和试做结果；字体尺度、图文关系、疏密和视觉重心通过样张传达。
+- **简短定义**：SPEC 说明共同视觉特征、每种样张适合的任务、可变化部分与已验证范围。共享数值引用 tokens，不维护第二套数值表。
+- **可用实现**：可复用 SVG、tokens 和必要资产。原语坐标是局部实现，底壳是可选用的页面解法，不自动约束每页。
 
-## 审阅版本
+同一视觉语言可以包含高密度证据页与低密度表达页。覆盖范围由真实试做证明；只验证封面的包就是封面模板。用户要求严格复刻时记录所选样张及保留部分，否则按内容重组。项目画幅与输出要求由项目决定；样张标明自身制作条件，使用时适配而非覆盖项目选择。
 
-四件套审阅面展示底壳、每个原语、tokens、SPEC 与锚点；snapshot.layouts 是页面与收件的同一集合。legacy fidelity 保留源页与 canvas 对照、候选审计和原视觉检查。
-批准必须绑定当前 review_id、HTML、template_version 与包文件哈希。consume 对陈旧或有错误的反馈不赋予 approved。改包、预览或源参考后重新审阅。
-模板与普通页面分开：当次参考不需入库；publish 一定消费真实当前包确认。
-manifest 默认 candidate。只有通过批准检查的 publish 才产生 approved 库条目。
-同 ID 替换用 --replace 并保留旧包 .history；发布先复制到 staging，核对批准的字节，再切换。不能无确认删除或覆盖原条目。
+## PPT 包存储
+
+沿用 `_internal/00_project/template_pack` 的现有格式，库条目根等于完整包内容：
+
+- `tokens.css`：共享颜色、字体及其他确有复用的数值。
+- `skyline_shell.svg` 与 `assets/`：示例底壳及必要资产；文件存在不表示每页必须套壳。
+- `primitives/*.svg`：可渲染的代表页面或局部解法。
+- `SPEC.md` 与 `anchors/*.png`：适用说明和视觉证据。
+
+工具检查包是否可读取、是否有原语和视觉锚点，不按固定原语数量推断覆盖面。参考用于当次页面时可直接使用图片与项目方向，不要求补齐入库包。提取与迁移试做见 [提取流程](../workflow/01_template_intake.md)。
+
+视频视觉来源沿用 Video Craft 主题库的格式与数值；视频样张及制作说明在本 Skill 提供引用，动作和合成字段只引用 Craft 契约，见 [视频提取](../workflow/08_video_style_extraction_sop.md)。不强制两路同包格式。
+
+## 审阅版本与发布
+
+四件套审阅面展示底壳、原语、tokens、SPEC 与锚点；legacy fidelity 保留源页与 canvas 对照、候选审计和原视觉检查。旧包的锁层只用于其明确的严格复刻方式，不推广为自由制作规则。
+批准绑定当前 review_id、HTML、template_version 与包文件哈希。改包、预览或源参考后重新审阅；manifest 默认为 candidate，技术校验不赋予批准。
+同 ID 替换用 --replace 并保留 .history；发布先复制 staging，核对批准的字节，再切换。当次参考无需入库，publish 消费当前包真实确认。

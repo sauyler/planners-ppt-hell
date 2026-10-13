@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from canvas_frame import FRAME_H_INT, FRAME_W_INT  # noqa: E402
+from canvas_frame import svg_frame  # noqa: E402
 
 
 PLAYWRIGHT_SNIPPET = r'''
@@ -17,7 +17,7 @@ from playwright.sync_api import sync_playwright
 import sys
 
 sys.path.insert(0, __CANVAS_FRAME_DIR__)
-from canvas_frame import FRAME_H_INT, FRAME_W_INT
+from canvas_frame import svg_frame
 
 out_dir = Path(sys.argv[1])
 svg_files = [Path(p) for p in sys.argv[2:]]
@@ -26,8 +26,10 @@ written = []
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
-    page = browser.new_page(viewport={"width": FRAME_W_INT, "height": FRAME_H_INT})
+    page = browser.new_page()
     for svg in svg_files:
+        frame = svg_frame(svg)
+        page.set_viewport_size(frame.as_dict())
         out_file = out_dir / f"{svg.stem}.png"
         page.goto(svg.resolve().as_uri())
         page.wait_for_timeout(300)
@@ -175,6 +177,7 @@ def main():
         except ValueError:
             return Path(path).name
 
+    frames = {svg.stem: svg_frame(svg) for svg in svg_files}
     files_meta = []
     for out_path in written:
         p = Path(out_path)
@@ -184,7 +187,7 @@ def main():
             "width": w,
             "height": h,
             "bytes": p.stat().st_size if p.exists() else 0,
-            "valid_size": w == FRAME_W_INT and h == FRAME_H_INT,
+            "valid_size": w == frames[p.stem].width and h == frames[p.stem].height,
         })
 
     if args.update_manifest and args.manifest:

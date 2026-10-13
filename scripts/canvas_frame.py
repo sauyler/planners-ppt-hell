@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""画幅：一套页面到底多大。**这个决定归「做画面」。**
+"""项目画幅的唯一解析入口；缺省常量仅用于旧项目和示例。
 
-默认 16:9（1920×1080），开局与用户确认一次（见
-`references/workflow/04_svg_stage.md`）。视频不是另一个画幅，而是同一张
-16:9 页面上留一个给人物窗口的**排版选择**（见
-`references/domain/style_system.md`）。
-
-这里是画幅及其派生度量的**唯一 owner**。此前同一个数字被检查画面、
-转换 PPT、渲染、模板 runtime 和状态版本各持一份，只在值不变时才一致；
-现在改画幅只需要改这一个文件，其余模块一律从这里取值。
-
-不要在本模块之外新写 1920/1080/13.333 这类字面量。
+项目选择存于 page_manifest.json.canvas；快照冻结该值。
+模板、校验与输出消费该选择，不各自决定画幅。
 """
 
 # ── 画幅本体 ──
@@ -37,3 +29,50 @@ CONTAINER_MIN_H = 120.0
 BODY_TEXT_MAX_Y = 1000.0  # y 超过它的 text 归页脚／页码，不计入正文底部
 FOOTER_RULE_Y = 986.0     # 页脚规则的基线位置；正文底部与它之差就是底部空档
 SMALL_TEXT_MAX_PX = 22.0  # 不超过它的字号算小字，参与跨页基线统计
+
+
+from dataclasses import dataclass
+import json
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class Canvas:
+    width: int = FRAME_W_INT
+    height: int = FRAME_H_INT
+
+    def __post_init__(self):
+        for value in (self.width, self.height):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError("Canvas width and height must be positive integers")
+
+    @property
+    def viewbox(self):
+        return f"0 0 {self.width} {self.height}"
+
+    def as_dict(self):
+        return {"width": self.width, "height": self.height}
+
+
+def frame_from_manifest(manifest):
+    value = manifest.get("canvas")
+    if value is None:
+        return Canvas()
+    if not isinstance(value, dict) or set(value) != {"width", "height"}:
+        raise ValueError("canvas must contain width and height")
+    return Canvas(**value)
+
+
+def project_frame(root):
+    path = Path(root) / "_internal/00_project/page_manifest.json" if root else None
+    return frame_from_manifest(json.loads(path.read_text())) if path and path.is_file() else Canvas()
+
+
+def svg_frame(path):
+    """Read the dimensions already declared by an SVG, including frozen artifacts."""
+    import xml.etree.ElementTree as ET
+    root = ET.parse(path).getroot()
+    values = [float(root.get(name, default)) for name, default in (("width", FRAME_W), ("height", FRAME_H))]
+    if any(not value.is_integer() for value in values):
+        raise ValueError("SVG canvas dimensions must be integer pixels")
+    return Canvas(*(int(value) for value in values))

@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+from canvas_frame import Canvas
 
 from prepare_source_material import (folder_files, image_name_key, prepare_source_material,
                                      register_image_folder)
@@ -326,7 +327,7 @@ def sha256_file(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def _write_manifest_state(staging, route, plan_path, plan):
+def _write_manifest_state(staging, route, plan_path, plan, canvas=None):
     """项目状态记下路线与契约绑定：路线决定跑哪一半检查，绑定决定画面还算不算数。
 
     记的是契约文件自己的位置与内容摘要，加上它声明的 `script_hash`；稿子按
@@ -335,6 +336,8 @@ def _write_manifest_state(staging, route, plan_path, plan):
     path = staging / INTERNAL_ROOT / "00_project" / "page_manifest.json"
     state = json.loads(path.read_text(encoding="utf-8"))
     state["route"] = route
+    state["canvas"] = (canvas or Canvas()).as_dict()
+    state["input_kind"] = "visual-plan" if plan_path else "standalone"
     if plan_path is not None:
         state["visual_plan"] = {
             "path": str(plan_path),
@@ -368,7 +371,17 @@ def main():
     route.add_argument("--source", help="Source Markdown, DOC, or DOCX path")
     route.add_argument("--assets", help="Flat folder of loose image files (route with no source document)")
     parser.add_argument("--plan", help="Upstream visual-plan.json handed over with the pack (with --assets)")
+    parser.add_argument("--route", choices=("slides", "video"), help="Output route; defaults to slides for source, video for plan")
+    parser.add_argument("--width", type=int, default=Canvas().width, help="Project canvas width in SVG pixels")
+    parser.add_argument("--height", type=int, default=Canvas().height, help="Project canvas height in SVG pixels")
     args = parser.parse_args()
+    try:
+        canvas = Canvas(args.width, args.height)
+    except ValueError as exc:
+        parser.error(str(exc))
+    output_route = args.route or ("video" if args.assets else "slides")
+    if args.assets and output_route != "video":
+        parser.error("--assets with --plan is the video production-pack adapter")
     if args.plan and not args.assets:
         parser.error("--plan belongs to the --assets route; the --source route writes its own content stub")
 
@@ -425,7 +438,7 @@ def main():
             json.dumps(page_content, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        _write_manifest_state(staging, "video" if assets else "slides", plan_path, plan)
+        _write_manifest_state(staging, output_route, plan_path, plan, canvas)
 
         if root.exists():
             root.rmdir()
@@ -439,7 +452,7 @@ def main():
         print(f"Registered {source_manifest['image_count']} source image(s) from: {assets}")
     print("User-facing deliverables:")
     print("  02_visual_review.html")
-    if assets:
+    if output_route == "video":
         print(f"  {INTERNAL_ROOT}/06_workbench/snapshots/<snapshot_id>/snapshot.json")
     else:
         print("  final_deck.pptx")

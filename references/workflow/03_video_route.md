@@ -1,6 +1,6 @@
 # 视频静态画面工作台
 
-接收 video-idea-system 的既有 visual-plan.json + assets，将上屏声明制作成可按元素指名的静态 SVG。旧 Story 入口已转入 Idea；可识别的既有包按文件契约接收，不要求重跑故事流程。
+可适配 video-idea-system 的 visual-plan.json + assets，也可直接接收上屏稿或材料，将内容制作成可按元素指名的静态 SVG。旧 Story 入口已转入 Idea；可识别的既有包按文件契约接收，不要求重跑故事流程。
 普通页面没有录制前批准门。作者可以在持续工作台改字、提任务；录制或交给 Craft 时选择一次固定快照，不把整个项目封成终态。
 
 ## 接收与方向
@@ -9,7 +9,9 @@
 python scripts/init_svg_project.py <project> --assets <pack>/assets --plan <pack>/visual-plan.json
 ```
 
-screen ID 不重新编号；契约中的正文、原样标签和花字按适配器进 content，理由、来源与说明进 notes。未知字段报告裁决，不假装已画上屏。
+无生产包时用 `python scripts/init_svg_project.py <project> --source <上屏稿.md> --route video`，整理 page_content 后使用同一工作台。独立输入输出快照标明未绑定脚本，后续合成需由 Craft 建立脚本与时间绑定；不声称它已满足生产包交接。
+
+已有包的 screen ID 不重新编号；契约中的正文、原样标签和花字按适配器进 content，理由、来源与说明进 notes。未知字段报告裁决，不假装已画上屏。
 确认风格与画幅，选择 Video Craft 主题或明确自主设计；editorial-archive 参考见 [主题说明](../domain/video_style_editorial_archive.md)，新主题提炼见 [提炼 SOP](08_video_style_extraction_sop.md)。
 共同方向写入 _internal/01_content/design_direction.md，明确字幕区、人物位置、透明/不透明与强调余量。composition 字段按 Video Craft 的 references/composition-facts-contract.md，不在本 Skill 复制第二份字段定义。
 

@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from canvas_frame import project_frame
 
 STORE = '_internal/06_workbench'
 VIEW = '_internal/02_svg_source'
@@ -250,7 +251,7 @@ def initialize(root):
     pages = content.get('pages', [])
     head = {'version': 'svg-workbench/1', 'order': [], 'pages': {}, 'tasks': {}, 'operations': {},
             'route': manifest.get('route', 'slides'), 'upstream': manifest.get('input_binding', {}),
-            'created_at': now()}
+            'input_kind': manifest.get('input_kind', 'production'), 'created_at': now()}
     for page in pages:
         key = page.get('page_key', '')
         if not KEY.fullmatch(key) or key in head['pages']:
@@ -547,7 +548,8 @@ def make_snapshot(root, head, purpose, operation_id=None):
         raise StoreError('route_changed', 'Project route changed after workbench initialization')
     upstream = copy.deepcopy(manifest.get('input_binding', head.get('upstream', {})))
     binding = manifest.get('visual_plan') or manifest.get('visual_contract') or manifest.get('contract')
-    if head['route'] == 'video' and not binding:
+    standalone = head.get('input_kind') == 'standalone' and not binding
+    if head['route'] == 'video' and not binding and not standalone:
         raise StoreError('missing_contract', 'Video snapshot needs the bound visual-plan.json and script.md')
     if binding:
         upstream['visual_contract'] = binding
@@ -589,8 +591,12 @@ def make_snapshot(root, head, purpose, operation_id=None):
                 upstream[name + '_sha256'] = digest(destination.read_bytes())
     snapshot = {'version': 'svg-workbench-snapshot/1', 'snapshot_id': identity, 'created_at': now(),
                 'purpose': purpose, 'route': head['route'], 'order': list(head['order']), 'pages': records,
-                'upstream': upstream, 'operation_id': operation_id}
+                'upstream': upstream, 'operation_id': operation_id,
+                'canvas': project_frame(root).as_dict(),
+                'input_kind': 'standalone' if standalone else 'production'}
     snapshot['content_binding'] = 'changed_needs_check' if any(p['content_delta'] for p in records) else 'baseline'
+    if head['route'] == 'video' and standalone:
+        snapshot['content_binding'] = 'unbound'
     atomic(directory / 'snapshot.json', encoded(snapshot))
     atomic(directory / 'snapshot.sha256', digest(encoded(snapshot)).encode())
     return {**snapshot, 'root': str(directory), 'path': str(directory / 'snapshot.json'), 'ok': True}
@@ -636,7 +642,8 @@ def load_snapshot(root, path):
         assets(page.get('assets', []))
     upstream = data.get('upstream', {})
     binding = upstream.get('visual_contract', {})
-    if data.get('route') == 'video':
+    standalone = data.get('input_kind') == 'standalone' and data.get('content_binding') == 'unbound' and not binding
+    if data.get('route') == 'video' and not standalone:
         plan_path = checked(upstream.get('visual_plan_snapshot', ''), binding.get('sha256'))
         script_path = checked(upstream.get('script_snapshot', ''), binding.get('script_hash'))
         if json.loads(plan_path.read_bytes()).get('script_hash') != digest(script_path.read_bytes()):
@@ -718,6 +725,7 @@ def commit(root, command, browser=False):
                 key = command.get('page_key')
                 current = page_value(root, head, key)
                 destination = base / 'candidates' / (identity + '.svg')
+                destination.parent.mkdir(parents=True, exist_ok=True)
                 if current['revision']:
                     tree = ET.fromstring(current['svg'])
                     source = revision_dir(root, current['revision'])

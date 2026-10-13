@@ -4,23 +4,18 @@
 
 ---
 
-## 1. 画幅与天际线基准
+## 1. 画幅与路线
 
-- 默认 16:9 画布：`width="1920" height="1080"`、`viewBox="0 0 1920 1080"`，同一套项目保持一致。机器取值唯一 owner 为 `scripts/canvas_frame.py`。
-- 常规内容页遵循 `style_system.md` 的 **1920×1080 全局天际线坐标**：
-  - 页眉区：`y = 56..175`（左竖条 `x=80, y=64, w=8, h=54` + Action Title `x=106, y=102` + 副标题 `x=106, y=144` + 右上章节锚点 `x=1540..1560, y=64`）
-  - 正文安全区：`x = 80..1840 (或 60..1860), y = 196..896`
-  - 底部定海神针收口横幅：`x = 80, y = 918, width = 1760, height = 76`
-  - 页脚来源与页码：`y = 1034..1036`
+项目画幅保存在 `page_manifest.json.canvas`，由 `canvas_frame.py` 读取和解释；旧项目缺省为 1920×1080。SVG 根尺寸与 viewBox 使用同一画幅，检查与冻结输出读取同一选择。模板原语使用自己的示例坐标，放入项目时适配。
 
----
+技术检查按 route 执行：共同检查保护 SVG 与资产；PPT 专属能力只约束 slides；视频检查元素身份与交接结构。PPT 能力见 [转换规则](svg_to_ppt_rules.md)，视频接口见 [视频路线](../workflow/03_video_route.md)。本文件不规定页眉、横幅、配色或留白。
 
 ## 2. 基础表达与 `<style>` / `:root` CSS 变量支持
 
 - **核心图元**：使用 `rect`、`line`、`circle`、`ellipse`、`polygon`、`polyline`、`path`、`text`、`image`、`linearGradient`、`radialGradient` 及结构化的 `g`。
 - **双出口原生支持 `<style>` 与 `:root` `var(--...)` 设计令牌**：
   - `slides`（可编辑 PPT）与 `video`（视频静态画面）现在**均原生支持**页内 `<style>` 块与 `:root { --token: value; }` CSS 变量！
-  - `native_svg_to_ppt.py` 与 `validate_svg_layout.py` 会在解析阶段自动展开 `:root` 变量并将 `.class`、`#id`、`tag` 选择器内联到元素属性上，从而让模板包的 `tokens.css` 在 SVG 渲染与 PPTX 导出两端 100% 同步生效。
+  - `native_svg_to_ppt.py` 与 `validate_svg_layout.py` 会在解析阶段自动展开 `:root` 变量并将 `.class`、`#id`、`tag` 选择器内联到元素属性上，页面需要包含所用 token 定义；复杂样式以实际渲染与转换报告为准。
   - 页面内若引用了未在 `:root` 中定义的 `var(--...)`（且无 fallback），会被检查器以 `UNDEFINED_CSS_VAR` 拦截。
 - **文本与多行排版**：
   - 优先使用每行独立 `<text>` 或带 `<tspan x="..." dy="...">` 的显式多行段落（转换器会将带正 `dy` 的 `<tspan>` 自动拆分为 PowerPoint 文本框内的独立段落）。
@@ -61,8 +56,8 @@
 3. **`TEXT_OVERFLOWS_CONTAINER`（warning，胶囊/卡片文字溢出预警）**：
    - 当单行 `<text>` 位于胶囊标签或卡片 `<rect>` 内部，但估算字宽超出容器可用宽度时报警，防止转入 PowerPoint 后末字自动折行掉出胶囊。
 4. **`TEXT_OVERLAP` / `OUT_OF_BOUNDS` / `TEXT_OUT_OF_BOUNDS`（error，文字重叠与出画布拦截）**：
-   - 精确计入叶子节点 `transform`、`dominant-baseline` 与多行 `<tspan dy>` 高度，拦截同层文字互相踩踏或元素捅出 1920×1080 画布。
+   - 精确计入叶子节点 `transform`、`dominant-baseline` 与多行 `<tspan dy>` 高度，拦截同层文字互相踩踏或元素超出当前画布。
 5. **图片与样式完整性（`MISSING_IMAGE` / `IMAGE_STRETCHED` / `UNDEFINED_CSS_VAR` / `INVALID_FONT_WEIGHT`）**：
    - 拦截缺失图片、拉伸变形、未定义 CSS 变量与非法属性。
 
-> **技术报告零报错 ≠ 页面已经好看**。通过脚本检查后，必须实际打开每页渲染出的 **PNG 大图** 与整套联系表，按 `style_system.md` 核对 75:20:5 配比、天际线对齐、卡片下半截饱和度与视觉重心。
+> **技术报告零报错 ≠ 页面已经好看**。检查后查看当前页面 PNG，按 [视觉判断](style_system.md) 记录实际发现。

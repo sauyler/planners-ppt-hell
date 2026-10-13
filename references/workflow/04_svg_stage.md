@@ -1,8 +1,8 @@
 # 页面制作与候选提交
 
-读 page_content.json、共同方向、所选模板或视频主题，以及当前页用户修改和任务。
+读 page_content.json、共同方向、所选视觉样张与模板/主题定义，以及当前页用户修改和任务。模板是当前页的设计起点，按内容任务选用或重组；需要改分页或证据时回到内容决定，不为套原语静默删改。
 画幅由 canvas_frame.py 管理；SVG 特性见 [SVG 规则](../domain/svg_rules.md)，PPT 再读 [转换规则](../domain/svg_to_ppt_rules.md)。
-通用阅读层级与证据可读性见 [设计原则](../domain/style_system.md)，具体数值来自主题。
+通用阅读层级与证据可读性见 [设计原则](../domain/style_system.md)，共享视觉数值来自主题，原语坐标是示例实现。
 
 ## Checkout → 修改 → Save
 

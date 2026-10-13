@@ -2,7 +2,9 @@
 
 四阶段：接收 → 定方向 → 持续工作台 → 独立输出。工作台不是批准状态机。
 
-## 所有权
+业务与设计的唯一主人见 [职责与接口](../references/architecture.md)。本文只说明工程实现与验证。
+
+## 存储与编排实现
 
 workbench_store.py 唯一写 head、页面 revision、固定资产、用户保护、任务与快照；模型用 checkout → candidate save，浏览器用同一 commit 接口。
 ppt_pipeline.py 负责恢复提示、技术检查、实际看图记录、工作台打开及快照输出。review_surface 与页面宿主接入另有 owner。

@@ -110,12 +110,13 @@ def project_root_of(path):
             return base
     return None
 
-def parse_position(value):
+def parse_position(value, frame=None):
     """`--position`：当前 PNG 上的一处坐标或区域，必须落在画布内。
 
     返回 {'x','y','w','h'}；w/h 只在给了区域时非零。落在画布外、或读不出坐标，
     一律 raise——「我看了某处」要能被指出是看在哪里。
     """
+    frame = frame or canvas_frame.Canvas()
     match = POSITION_RE.match(str(value or ''))
     if not match:
         raise ValueError(
@@ -125,11 +126,11 @@ def parse_position(value):
     box.setdefault('h', 0.0)
     if box['w'] < 0 or box['h'] < 0:
         raise ValueError(f'区域的宽高不能是负数：{value}')
-    if not (0 <= box['x'] <= canvas_frame.FRAME_W and 0 <= box['y'] <= canvas_frame.FRAME_H
-            and box['x'] + box['w'] <= canvas_frame.FRAME_W
-            and box['y'] + box['h'] <= canvas_frame.FRAME_H):
+    if not (0 <= box['x'] <= frame.width and 0 <= box['y'] <= frame.height
+            and box['x'] + box['w'] <= frame.width
+            and box['y'] + box['h'] <= frame.height):
         raise ValueError(
-            f"这一处位置落在画布外：{value}（画布 {canvas_frame.FRAME_W_INT}×{canvas_frame.FRAME_H_INT}）")
+            f"这一处位置落在画布外：{value}（画布 {frame.width}×{frame.height}）")
     return box
 
 def contract_binding(root):
@@ -153,7 +154,7 @@ def contract_binding(root):
             return []
         return [{'check': 'visual_plan', 'level': 'unchecked', 'path': '',
                  'reason': '项目状态里没有记录交进来的契约',
-                 'message': '这条路线按契约画，但项目状态里没有契约的位置，核不了。'}]
+                 'message': '当前画面没有上游脚本绑定；可制作独立画面，合成前需建立脚本与时间绑定。'}]
     plan = Path(str(recorded['path']))
     declared_version = str(recorded.get('contract_version') or '')
     records = []
@@ -384,6 +385,8 @@ def design_observations(root, page_key):
     svg = root / SVG / (page_key + '.svg')
     if not svg.is_file():
         return {}
+    if canvas_frame.svg_frame(svg) != canvas_frame.Canvas():
+        return {'measurement_scope': 'default-frame heuristics not applicable; inspect rendered page'}
     raw_text = svg.read_text(encoding='utf-8-sig')
     root_el = ET.fromstring(raw_text)
 

@@ -128,7 +128,7 @@ git clone https://github.com/thePlannerIvan/planners-ppt-hell.git ~/.claude/skil
 
 ## 幻灯片路线
 
-没有模板时自主选择视觉；严格品牌复用与模板提取按需启用。画幅默认 16:9，开局确认一次（唯一 owner：`scripts/canvas_frame.py`）；模板库在开局挑一个即可，不需要经过模板提取。
+没有模板时自主选择视觉；严格品牌复用与模板提取按需启用。画幅默认 16:9，初始化可用 `--width` / `--height` 选择，值记录在项目 manifest，由 `scripts/canvas_frame.py` 统一解释；模板库在开局挑一个即可，不需要经过模板提取。
 
 普通页面没有批准门。导出固定快照并运行技术检查；每个快照输出存入 _internal/06_ppt_output/<snapshot_id>/，根 final_deck.pptx 只是最近成功输出的兼容副本。
 
@@ -139,7 +139,7 @@ python scripts/init_svg_project.py <project>/<画面目录> \
     --assets <包>/assets --plan <包>/visual-plan.json
 ```
 
-视觉身份来自 Video Craft 的主题或已确认自主方向。普通 SVG 不要求逐页/整套批准，录制或交接用不可变 snapshot.json；完整流程见 [视频路线](references/workflow/03_video_route.md)。
+没有生产包时可用 `--source <上屏稿.md> --route video` 直接制作，快照标明尚未绑定脚本。视觉身份来自 Video Craft 的主题或已确认自主方向。普通 SVG 不要求逐页/整套批准，录制或交接用不可变 snapshot.json；完整流程见 [视频路线](references/workflow/03_video_route.md)。
 
 工作台持续可编辑，没有永久 COMPLETE。5.0 项目首次接入导入既有 SVG；更早项目不混用旧状态机。模板入库仍需当前包人工确认。
 

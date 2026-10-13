@@ -1,5 +1,8 @@
 # 内置旗舰主题历史示例
 
+历史旗舰模板样张说明，仅供对应主题复用时参考。当前模板定义见 [模板契约](../contracts/template_package.md)；本文数值属于样张，不是通用设计或验收规则。
+
+
 仅供 agency-social-proposal / consulting-product-strategy 的主题参考；不是跨品牌或视频约束。当前包 SPEC.md、tokens.css 和原语优先。
 
 # 视觉方向与实操硬标尺（Style System）
