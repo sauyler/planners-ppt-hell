@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
-  <!-- Deep Matte Obsidian Blueprint Canvas -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080"
+     data-speaker-width="620" data-caption-safe-height="160">
+  <!-- Deep Matte Obsidian Blueprint Canvas
+       安全区（硬约束）：x 0–620 为真人出镜列，底部 y 920–1080 为字幕区 —— 二者不得放内容。
+       下游（Video Craft 的两支成片）按 data-speaker-width / data-caption-safe-height 避让。 -->
   <rect width="1920" height="1080" fill="#08090C" />
 
   <!-- Four-Corner Precision Engineering Registration Crosshairs (⌖) -->

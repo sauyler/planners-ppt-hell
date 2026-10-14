@@ -27,17 +27,20 @@
   /* ==========================================================================
      RESTRAINED MONOCHROME DRAFTING INK TOKENS
      ========================================================================== */
-  --ink-primary: #FFFFFF;             /* 100% Crisp Pure White for Hero Display & Contours */
-  --ink-secondary: #8B949E;           /* Cool Slate Grey for Subheads & Key Dimension Leaders */
-  --ink-muted: #484F58;               /* Deep Structural Grey for Closed Orbits & Cardinal Ticks */
-  --ink-hairline: #21262D;            /* Deep Hairline for Hidden Projection Grids */
+  /* 用途边界（硬约束）：文字只能用 text-safe 的三档；线可以用全部四档。 */
+  --ink-primary: #FFFFFF;             /* TEXT-SAFE 19.9:1  主展示字与主轮廓 */
+  --ink-secondary: #8B949E;           /* TEXT-SAFE  7.0:1  次级文字、关键尺寸线 */
+  --ink-muted: #484F58;               /* LINE-ONLY  2.4:1  闭合轨道、基准刻度 —— 禁止用作文字 */
+  --ink-hairline: #21262D;            /* LINE-ONLY  ~1.3:1 隐藏投影网格 —— 禁止用作文字 */
 
   /* ==========================================================================
-     SIGNATURE FUNCTIONAL ENGINEERING ACCENTS (Strict Single Accent Principle)
+     SINGLE ACCENT (SPEC §1「单点功能标定色，只能选其一」)
+     一页只选一支；未选中的那支不得作为第二支重音出场。
+     两支都只作描边/填充块，不作文字色。
      ========================================================================== */
-  --accent-amber: #F5A623;            /* Focal Singularity Star, Optical Lens Center & Alert */
-  --accent-cyan: #38BDF8;             /* Precision Laser Measurement, Viewport Crosshair & Origin */
-  --accent-strike-vermilion: #E06C75; /* Strikethrough Deletion Slash & Threshold Rupture */
+  --accent-amber: #F5A623;            /* 默认重音：焦点、奇点、告警 */
+  --accent-cyan: #38BDF8;             /* 备选重音：精密测量、视口准星 —— 与 amber 二选一 */
+  /* #E06C75 (vermilion) 已删除：0 个 primitive 使用（死 token） */
 
   /* ==========================================================================
      TYPOGRAPHIC STACKS (Technical Monospace & Modernist Swiss Sans)

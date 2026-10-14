@@ -44,7 +44,7 @@
     <!-- Layer 03: Wireframe Plate -->
     <g id="iso-plate-03">
       <polygon points="1060,475 1280,530 1060,585 840,530" fill="#0C0E13" stroke="#8B949E" stroke-width="1" stroke-dasharray="3 2" opacity="0.75" />
-      <text x="1060" y="536" text-anchor="middle" font-size="13" font-weight="600" fill="#484F58" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Inter, sans-serif" letter-spacing="1">THE BRAND / ARCHITECTURE</text>
+      <text x="1060" y="536" text-anchor="middle" font-size="13" font-weight="600" fill="#8B949E" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Inter, sans-serif" letter-spacing="1">THE BRAND / ARCHITECTURE</text>
       <!-- Leader Line to Right -->
       <line x1="1280" y1="530" x2="1350" y2="530" stroke="#484F58" stroke-width="1" />
       <circle cx="1350" cy="530" r="2.5" fill="#484F58" />
