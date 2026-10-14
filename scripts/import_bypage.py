@@ -134,7 +134,7 @@ def import_bypage(production, project):
                 production_notes = production_notes.replace(asset['reference'], relative)
             result_pages.append({
                 'page_key': page['page_key'], 'mode': '读', 'title': page['title'],
-                'content': content, 'notes': notes, 'production_notes': production_notes,
+                'content': content, 'copy_confirmed': True, 'notes': notes, 'production_notes': production_notes,
                 'sources': page.get('sources', ''), 'source_assets': list(dict.fromkeys(page_assets)),
                 'bypage_identity': page['identity'], 'bypage_page_number': page['page_number'],
                 'main_message': page.get('main_message', ''),

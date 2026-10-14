@@ -427,6 +427,54 @@ def prepare_candidate(root, command):
     return path
 
 
+def revision_changes(before, after, after_svg):
+    """Compare frozen content, not candidate paths or revision metadata."""
+    def values(svg, assets):
+        if not svg:
+            return {}, {}
+        tree = ET.fromstring(svg)
+        images = {a['element_id']: a['sha256'] for a in assets}
+        nodes = {}
+        texts = {}
+        text_nodes = {n for text in tree.iter() if text.tag.split('}')[-1] == 'text' for n in text.iter()}
+        parents = {child: parent for parent in tree.iter() for child in parent}
+        for node in tree.iter():
+            identity = node.get(ID_ATTR)
+            attrs = dict(node.attrib)
+            if node.tag.split('}')[-1] == 'image':
+                attrs.pop('href', None)
+                attrs.pop(XLINK, None)
+                attrs['image_content_sha256'] = images.get(identity)
+            # Ignore indentation between elements; preserve all text within text runs.
+            text = node.text if node in text_nodes or (node.text and node.text.strip()) else None
+            tail = node.tail if parents.get(node) in text_nodes or (node.tail and node.tail.strip()) else None
+            nodes[identity] = (node.tag, attrs, text, tail,
+                               [child.get(ID_ATTR) for child in node])
+            if node.tag.split('}')[-1] == 'text':
+                texts[identity] = ''.join(node.itertext())
+        return nodes, texts
+
+    old, old_text = values(before.get('svg', ''), before.get('assets', []))
+    new, new_text = values(after_svg, after.get('assets', []))
+    added, removed = sorted(new.keys() - old.keys()), sorted(old.keys() - new.keys())
+    modified = sorted(k for k in old.keys() & new.keys() if old[k] != new[k])
+    old_images = {a['element_id']: a['sha256'] for a in before.get('assets', [])}
+    new_images = {a['element_id']: a['sha256'] for a in after.get('assets', [])}
+    image_ids = sorted(k for k in old_images.keys() | new_images.keys()
+                       if old_images.get(k) != new_images.get(k))
+    text_ids = sorted(k for k in old_text.keys() | new_text.keys()
+                      if old_text.get(k) != new_text.get(k))
+    notes_changed = before.get('notes', '') != after['notes']
+    protection_changed = before.get('protected', {}) != after['protected']
+    return {'elements': {'added': added, 'removed': removed, 'modified': modified,
+                         'counts': {'added': len(added), 'removed': len(removed), 'modified': len(modified)}},
+            'image_elements': image_ids, 'text_elements': text_ids,
+            'svg_changed': bool(added or removed or modified),
+            'notes_changed': notes_changed, 'protection_changed': protection_changed,
+            'byte_delta': len(after_svg.encode()) - len(before.get('svg', '').encode()),
+            'no_change': not (added or removed or modified or notes_changed or protection_changed)}
+
+
 def save_page(root, head, command, browser, prepared_candidate=None):
     key = command.get('page_key')
     current = page_value(root, head, key)
@@ -477,8 +525,10 @@ def save_page(root, head, command, browser, prepared_candidate=None):
     page['previous_view_sha256'] = digest(view.read_bytes()) if view.is_file() else None
     page['revision'] = record['revision']
     page.setdefault('baseline_revision', record['revision'])
+    changes = revision_changes(current, record, (revision_dir(root, record['revision']) / 'page.svg').read_text())
     return {'ok': True, 'page_key': key, 'revision': record['revision'], 'saved': True,
-            'rendered': False, 'notes': notes}
+            'rendered': False, 'notes': notes, 'changes': changes,
+            'warnings': ['no_change'] if changes['no_change'] else []}
 
 
 def feedback(head, command):

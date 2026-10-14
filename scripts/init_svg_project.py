@@ -294,6 +294,7 @@ def adapt_visual_plan(plan, manifest, folder, unknown=None):
             "mode": "读",
             "title": title,
             "content": "\n".join(content),
+            "copy_confirmed": True,
             "source_assets": asset_ids,
             "notes": "\n".join(notes),
         })

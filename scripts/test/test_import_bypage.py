@@ -52,6 +52,7 @@ class BypageImportTests(unittest.TestCase):
         self.run_import()
         content = json.loads((self.project / '_internal/01_content/page_content.json').read_text())
         page = content['pages'][0]
+        self.assertTrue(page['copy_confirmed'])
         self.assertEqual(page['page_key'], 'stable-page')
         self.assertEqual(page['bypage_page_number'], 7)
         self.assertEqual(page['notes'], 'Speak this')

@@ -1,0 +1,54 @@
+:root {
+  /* ==========================================================================
+     CANVAS FOUNDATION: DEEP OBSIDIAN (16:9 Video Canvas 1920x1080)
+     ========================================================================== */
+  --bg-canvas: #08090C;               /* Deep Matte Obsidian Void (Optical Blueprint Base) */
+  --bg-surface-01: #0C0F14;           /* Primary Hero Graphic Silhouette Surface */
+  --bg-surface-02: #12151B;           /* Elevated Technical Component Surface */
+  --bg-surface-pill: #161B22;         /* Terminal Telemetry Pill Surface */
+
+  /* ==========================================================================
+     PRECISION ENGINEERING DRAFTING LINEWORK HIERARCHY
+     ========================================================================== */
+  --stroke-hairline-grid: 0.75px;     /* Tier 1: Micro Engineering Coordinate Grid & Projection Dashes */
+  --stroke-dimension-leader: 1.0px;   /* Tier 2: Dimension Lines, Crosshairs (+) & Registration Ticks */
+  --stroke-secondary-axis: 1.5px;     /* Tier 2.5: Secondary Coordinate Axes & Tolerance Boundaries */
+  --stroke-sub-structure: 2.0px;      /* Tier 3: Sub-component Envelopes & Harmonic Baseline */
+  --stroke-hero-contour: 4.0px;       /* Tier 4: Primary Hero Graphic Outer Silhouette */
+  --stroke-breakout-spike: 5.0px;     /* Tier 4.5: Explosive Breakthrough Laser & Singularity Spine */
+
+  /* ==========================================================================
+     DRAFTING DASH & TOLERANCE SPECIFICATIONS
+     ========================================================================== */
+  --dash-modular-grid: 4 6;           /* Subtle Coordinate Frame Dashes */
+  --dash-projection-ray: 2 3;         /* Orthogonal Projection & Datum Guide Dashes */
+  --dash-tolerance-band: 6 6;         /* Foundation Tolerance Orbit Dashes */
+
+  /* ==========================================================================
+     RESTRAINED MONOCHROME DRAFTING INK TOKENS
+     ========================================================================== */
+  --ink-primary: #FFFFFF;             /* 100% Crisp Pure White for Hero Display & Contours */
+  --ink-secondary: #8B949E;           /* Cool Slate Grey for Subheads & Key Dimension Leaders */
+  --ink-muted: #484F58;               /* Deep Structural Grey for Closed Orbits & Cardinal Ticks */
+  --ink-hairline: #21262D;            /* Deep Hairline for Hidden Projection Grids */
+
+  /* ==========================================================================
+     SIGNATURE FUNCTIONAL ENGINEERING ACCENTS (Strict Single Accent Principle)
+     ========================================================================== */
+  --accent-amber: #F5A623;            /* Focal Singularity Star, Optical Lens Center & Alert */
+  --accent-cyan: #38BDF8;             /* Precision Laser Measurement, Viewport Crosshair & Origin */
+  --accent-strike-vermilion: #E06C75; /* Strikethrough Deletion Slash & Threshold Rupture */
+
+  /* ==========================================================================
+     TYPOGRAPHIC STACKS (Technical Monospace & Modernist Swiss Sans)
+     ========================================================================== */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, Monaco, monospace;
+
+  /* Scale Ladder (1920x1080 Video Optimization) */
+  --size-hero-colossal: 64px;         /* Video Hero Assertion (Font-weight 900) */
+  --size-subhead-large: 26px;         /* Comparative Subhead (Font-weight 700) */
+  --size-body-assertion: 20px;        /* Global Topic Assertion (Font-weight 700) */
+  --size-telemetry-meta: 16px;        /* Monospace Engineering Tag / Index (Font-weight 600) */
+  --size-micro-dimension: 11px;       /* Precision Coordinate Annotation & Safe Zone Label */
+}

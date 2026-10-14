@@ -21,7 +21,7 @@ SVG 工作台持续存在。用户改字与模型候选共用版本存储；PPT 
 ## 2. 定方向
 
 一次确认画幅与视觉来源，用户已指明的直接执行。共同秩序写入 _internal/01_content/design_direction.md。
-通用判断读 [style_system.md](references/domain/style_system.md)；选择信息关系时读 [layout_taxonomy.md](references/domain/layout_taxonomy.md)。模板含义以 [模板契约](references/contracts/template_package.md) 为准；查看所选视觉样张与主题定义，具体构图由当前内容决定。
+通用判断读 [style_system.md](references/domain/style_system.md)；选择信息关系时读 [layout_taxonomy.md](references/domain/layout_taxonomy.md)。模板含义以 [模板契约](references/contracts/template_package.md) 为准；开画前读取所选模板/主题定义并实际查看样张；没有模板时查看本次参考，具体构图由当前内容决定。
 幻灯片复用参考、选择库模板或提炼入库时读 [01_template_intake.md](references/workflow/01_template_intake.md)；只有入库分支需要模板人工确认。
 结束条件：方向和画幅明确，必要的源参考已经实际查看。
 
@@ -29,7 +29,7 @@ SVG 工作台持续存在。用户改字与模型候选共用版本存储；PPT 
 
 读 [04_svg_stage.md](references/workflow/04_svg_stage.md)。模型先 checkout 当前页，编辑返回的候选，再通过 store CLI 提交 author=model、candidate、base_revision。_internal/02_svg_source 是可重建兼容视图，不是生成脚本写入位置。
 读取 notes、protected 与待办 tasks；冲突时保留候选并重新读取。遗漏用户操作会被拦下，明确改写范围只来自浏览器任务授权。
-逐页 check、查看当前 PNG、记录实际 inspect。打开工作台与反馈恢复见 [07_visual_review.md](references/workflow/07_visual_review.md)；反馈不是批准，未完成反馈不阻止独立输出。运行在 DSH 时用 `review_open` 自动加载同一工作台到侧栏；非 DSH 自动启动或复用 `planners-review-core` 本地宿主。两路共用同一份 Workbench Store、草稿和命令回执。
+用 check --summary 批量检查本轮页面，再逐页查看当前 PNG、记录实际 inspect。打开工作台与反馈恢复见 [07_visual_review.md](references/workflow/07_visual_review.md)；反馈不是批准，未完成反馈不阻止独立输出。运行在 DSH 时用 `review_open` 自动加载同一工作台到侧栏；非 DSH 自动启动或复用 `planners-review-core` 本地宿主。两路共用同一份 Workbench Store、草稿和命令回执。
 结束条件：本轮提交有保存回执，技术问题与实际看图结果可查。工作台可继续修改，没有永久 COMPLETE。
 
 ## 4. 输出

@@ -27,6 +27,8 @@ they encoded one house style and pushed every deck toward sparse, uniform,
 card-based pages — the opposite of a dense, designed proposal. Design judgement now
 belongs to the model, which renders the page and looks at it.
 """
+from image_diagnostics import image_frames
+
 import argparse
 import json
 import math
@@ -617,6 +619,11 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
             E("IMAGE_ASPECT_DISTORTION",
               "Image must use preserveAspectRatio with meet or slice; 'none' stretches the bitmap",
               target=f"image_{idx}")
+
+    # Shared fit measurements are advisory; crop intent belongs to page design.
+    for image in image_frames(path):
+        for diagnostic in image['issues']:
+            W(diagnostic['code'], diagnostic['message'], target=image['element_id'])
 
     # ── 元素必须可被指名、且指得准（视频出口独有） ──
     if not slides:

@@ -116,6 +116,7 @@ class VideoRouteInitTests(VideoRouteFixtures, unittest.TestCase):
 
         written = json.loads((root / CONTENT).read_text(encoding="utf-8"))
         self.assertEqual(written["source_path"], "")
+        self.assertTrue(all(p["copy_confirmed"] for p in written["pages"]))
         self.assertEqual(written["unused_assets"], {})
         self.assertEqual(written["project"], "视频标题")
         # screen_id → page_key, unchanged, in upstream order.

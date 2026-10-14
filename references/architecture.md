@@ -13,7 +13,9 @@
 | 视觉身份 | 所选模板/主题；共享数值在其 tokens，SPEC 解释用途，样张表达实际效果 | 项目选择引用它；页面设计按内容重组；临时参考不必先制成模板包 |
 | 当前页面的构图 | 页面设计，见 [制作](workflow/04_svg_stage.md)；[视觉判断](domain/style_system.md)与[版式参考](domain/layout_taxonomy.md)供判断 | 内容、模板及技术能力是输入；原语坐标属于该原语，不自动成为全局坐标 |
 | SVG 渲染与 PPT 转换能力 | 对应渲染器/转换器实现与测试；`validate_svg_layout.py` 执行路线检查 | 技术文档说明用法与限制；不定义配色、留白或页面骨架 |
-| 页面版本、用户保护、资产与快照 | `workbench_store.py`，checkout → save / snapshot | 浏览器、模型与导出使用同一接口，不写兼容视图代替提交 |
+| 图片槽位与源图比例测量 | `image_diagnostics.py`；frames 与 validator 共用 | 只报告预计裁切/填充和测量限制，页面设计结合实际图判断 |
+| 页面文案对表 | `copy_audit.py` 读取内容入口确认的 page_content 与既有来源绑定 | 不另造权威稿；只提示疑似新增文字，未确认明确 unchecked |
+| 页面版本、用户保护、资产与快照 | `workbench_store.py`，checkout → save / snapshot；save 输出 changes | 浏览器、模型与导出使用同一接口，不写兼容视图代替提交 |
 | 模板包校验、确认与入库 | `template_library.py` 与模板审阅接口 | 普通制作不承担入库流程；入库批准绑定当前包 |
 | 视频合成及动效字段 | Video Craft 的 composition / SVG animation 契约 | 本 Skill 按契约准备元素与分组；实际动画、时间轴与声音归 Craft |
 

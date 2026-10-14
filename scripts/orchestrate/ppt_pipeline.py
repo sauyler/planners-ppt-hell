@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -17,6 +18,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import review_surface
+from image_diagnostics import image_frames
+from copy_audit import audit_copy
 from canvas_frame import project_frame, frame_from_manifest
 from review_feedback import (APPLIED_EDITS_FILE, ack_human_edit, consume, content_key,
                              human_edit_state, human_edits)
@@ -175,20 +178,66 @@ def human_edit_problems(root, keys):
         })
     return problems
 
+def selected_pages(pages, keys):
+    selected = keys or [p['page_key'] for p in pages]
+    unknown = set(selected) - {p['page_key'] for p in pages}
+    if unknown:
+        raise ValueError('Unknown page key: ' + ', '.join(sorted(unknown)) +
+                         '. Use space-separated keys: check --pages p24 p29 p32; omit --pages for all pages.')
+    return selected
+
+
+def check_summary(result):
+    rows = []
+    for page in result['pages']:
+        codes = {i['code'] for report in page.get('issues', {}).get('reports', [])
+                 for i in report.get('issues', []) if i.get('severity') in {'error', 'warning'}}
+        audit = page.get('copy_audit', {})
+        codes.update(i['code'] for i in audit.get('issues', []))
+        if audit.get('status') == 'unchecked':
+            codes.add('COPY_UNCHECKED')
+        if page.get('human_edit_error'):
+            codes.add('HUMAN_EDIT_UNACKNOWLEDGED')
+        row = {k: page[k] for k in ('page', 'render_token', 'png', 'error', 'human_edit_error') if k in page}
+        if row.get('error'):
+            lines=row['error'].strip().splitlines()
+            detail=next((line for line in lines if re.search(r'\b\w*(?:Error|Exception):',line)),lines[-1] if lines else '')
+            row['error']=detail[:400]
+        row.update(status=page.get('validation_status', page['status']),
+                   cached=page.get('status') == 'unchanged', issue_codes=sorted(codes),
+                   copy_status=audit.get('status', 'unchecked'))
+        rows.append(row)
+    return {'route': result['route'], 'pages': rows}
+
+
+def frames(root, keys):
+    pages = content(root)['pages']
+    selected = selected_pages(pages, keys)
+    result = []
+    for page in pages:
+        if page['page_key'] in selected:
+            current = get_page(root, page['page_key'])
+            result.append({'page': page['page_key'], 'revision': current['revision'],
+                           'images': image_frames(current['svg_path']) if current['revision'] else []})
+    return {'pages': result}
+
+
 def check(root, keys):
     m=sync(root); require_direction(root); contract=require_contract(root)
     ensure(root)
-    pages=content(root)['pages']; selected=keys or [p['page_key'] for p in pages]
-    if set(selected)-{p['page_key'] for p in pages}: raise ValueError('Unknown page key')
+    document=content(root); pages=document['pages']; selected=selected_pages(pages,keys)
+    checker=digest({name:sha(SCRIPTS/name) for name in ('validate_svg_layout.py','image_diagnostics.py')})
     results=[]
     for p in pages:
         k=p['page_key']
         if k not in selected: continue
         try:
             v=page_version(root,p)
-            if (rendered(root,k,v) and frame_from_manifest(read(root/VALIDATION/(k+'.json'),{})) == frame_from_manifest(m)):
+            cached=read(root/VALIDATION/(k+'.json'),{})
+            if (rendered(root,k,v) and cached.get('checker_sha256')==checker and frame_from_manifest(cached) == frame_from_manifest(m)):
                 rec=read(root/VALIDATION/(k+'.json'),{})
-                results.append({'page':k,'status':'unchanged','render_token':digest(rec),
+                results.append({'page':k,'status':'unchanged','validation_status':'fix' if rec.get('errors',1) else 'pass',
+                                'render_token':digest(rec),'png':str(root/PNG/(k+'.png')),
                                 'issues':rec.get('validator',{})}); continue
             page=get_page(root,k)
             svg=Path(page['svg_path'])
@@ -208,7 +257,7 @@ def check(root, keys):
                 if page_version(root,p)!=v:
                     raise ValueError('Page changed during rendering; old render archived, rerun check')
                 write(root/VALIDATION/(k+'-validator.json'),data)
-            rec={'version':v,'errors':data.get('summary',{}).get('errors',1) if not val.returncode else max(1,data.get('summary',{}).get('errors',1)),
+            rec={'version':v,'checker_sha256':checker,'errors':data.get('summary',{}).get('errors',1) if not val.returncode else max(1,data.get('summary',{}).get('errors',1)),
                 'png_sha256':provenance['png_sha256'],'validator':data,
                 'revision':page['revision'],'renderer':provenance['renderer'],'canvas':frame_from_manifest(m).as_dict()}
             write(root/VALIDATION/(k+'.json'),rec)
@@ -220,6 +269,9 @@ def check(root, keys):
     obs=design_observations_deck(root,[r['page'] for r in results if r.get('page')])
     for r in results:
         if r.get('page') in obs: r['design']=obs[r['page']]
+        if r['status']!='blocked':
+            page=next(p for p in pages if p['page_key']==r['page'])
+            r['copy_audit']=audit_copy(root,document,page,get_page(root,r['page'])['svg_path'],route(root))
     from render_svg_png import make_contact_sheet
     files=[root/PNG/(p['page_key']+'.png') for p in pages if (root/PNG/(p['page_key']+'.png')).exists()]
     if files: make_contact_sheet(files,root/'_internal/03_png_preview/full_deck_contact_sheet.png')
@@ -228,6 +280,7 @@ def check(root, keys):
         hit=next((r for r in results if r.get('page')==problem['page']),None)
         if hit is None: continue
         hit['status']='fix'
+        hit['validation_status']='fix'
         hit['human_edit']=problem['human_edit']
         hit['human_edit_error']=problem['error']
     event(root,'check',pages=selected)
@@ -660,7 +713,11 @@ def _next_action(root):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('project_dir');sub=p.add_subparsers(dest='command',required=True)
     sub.add_parser('next').add_argument('--json',action='store_true')
-    c=sub.add_parser('check');c.add_argument('--pages',nargs='+')
+    c=sub.add_parser('check',help='Check selected pages or all pages; keys are space-separated')
+    c.add_argument('--pages',nargs='+',help='Example: --pages p24 p29 p32 (no commas)')
+    c.add_argument('--summary',action='store_true',help='Compact JSON: result, cache, issue codes, copy status, token and PNG')
+    c=sub.add_parser('frames',help='List current saved image slots and source dimensions before editing')
+    c.add_argument('--pages',nargs='+')
     c=sub.add_parser('inspect');c.add_argument('--page',required=True);c.add_argument('--render-token',required=True);c.add_argument('--note',required=True);c.add_argument('--first-glance',required=True);c.add_argument('--design-check',required=True)
     c.add_argument('--position',required=True,help=f'当前 PNG 上的一处坐标或区域，例如 {POSITION_HELP}；必须落在画布内')
     verdict=c.add_mutually_exclusive_group(required=True)
@@ -683,7 +740,10 @@ def main():
     try:
         if a.command=='next':
             result=next_action(root)
-        elif a.command=='check':result=check(root,a.pages)
+        elif a.command=='check':
+            result=check(root,a.pages)
+            if a.summary:result=check_summary(result)
+        elif a.command=='frames':result=frames(root,a.pages)
         elif a.command=='inspect':result=inspect(root,a.page,a.render_token,a.note,a.first_glance,a.design_check,a.position,'must_fix' if a.must_fix else 'clean')
         elif a.command=='resolve':result=resolve(root,a.feedback_id,a.note,a.result_revision,a.operation_id)
         elif a.command=='ack-human-edit':result=ack_human_edit(root,a.page,a.note)
@@ -701,6 +761,6 @@ def main():
                 run(SCRIPTS/'template/prepare_visual_references.py',a.reference,'--project',root)
             m['template_intake']={'mode':a.mode,'template_id':a.template_id};write(root/PROJECT/'page_manifest.json',m);result=m['template_intake']
         print(json.dumps(result,ensure_ascii=False,indent=2))
-        if a.command=='check' and any(x['status'] in {'blocked','fix'} for x in result['pages']):raise SystemExit(1)
+        if a.command=='check' and any(x.get('validation_status',x['status']) in {'blocked','fix'} for x in result['pages']):raise SystemExit(1)
     except (ValueError,OSError,ET.ParseError) as e:print(json.dumps({'error':str(e)},ensure_ascii=False));raise SystemExit(1)
 if __name__=='__main__':main()

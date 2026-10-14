@@ -33,3 +33,13 @@ Bypage 是已有生产包的适配入口，不是使用本 Skill 的前置条件
 ## 视频输入
 
 --assets + --plan 初始化直接适配上游 visual-plan，screen_id 原样作为 page_key；上屏内容与不宜上屏的理解信息分别进 content / notes。没有 visual-plan 时用 `--source <上屏稿.md> --route video` 直接制作；这是独立画面输入，未绑定口播与录音，不要求先运行其他 Skill。见 [视频路线](03_video_route.md)。
+
+## 文案对表
+
+页面内容以当前确认稿为依据；新增表达需有内容来源或用户授权。`page_content.json` 是页面制作接口，不替代上游正式稿。`copy_audit.py` 对当前 SVG 的 `<text>` 与该页已确认内容做软核对，不拿备注、制作说明或模板示例文字当作上屏授权。
+
+Bypage / visual-plan 适配器为页面写入 `copy_confirmed: true`，来源绑定沿用 manifest 既有 upstream / visual_plan。直接输入在完成逐页稿整理并确认后，才在对应页标记 `copy_confirmed: true`；未整理原始材料或旧项目无该字段时显示 unchecked，不阻碍工作流。直接稿沿用 `source_path`，可记录 `source_sha256` 校验引用版本；不要为了清除警告改写基准或伪造确认。
+
+对表使用 PPT 的 title + content、视频的 content（视频 title 可能只是屏名）。工具合并 tspan、忽略换行与空格、剥离 Markdown 标记，单独列出短编号和箭头等结构文字，列出其他疑似新增字符串。授权修订先更新当前逐页内容并保留来源；来源文件哈希失配则先刷新内容适配，工具返回 unchecked。
+
+matched 只表示没有发现额外 SVG 文字，不证明全文无遗漏、数字无误或图片内文字已核查；同样也不能证明改写与已录口播一致。疑似项由生产方判断，事实核查继续遵循上面的范围。
