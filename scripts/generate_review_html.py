@@ -191,7 +191,7 @@ def generate(root, template_path=None):
     }
     by_key = {p['page_key']: p for p in c['pages']}
     for key in head['order']:
-        p = by_key[key]
+        p = by_key.get(key) or head['pages'][key].get('input', {})
         k = p['page_key']
         stored = get_page(root, k)
         previous = root/REVIEW/'versions'/f'{k}-{old.get("versions", {}).get(k, "")}.png'

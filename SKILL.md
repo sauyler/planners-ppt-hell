@@ -27,14 +27,14 @@ SVG 工作台持续存在。用户改字与模型候选共用版本存储；PPT 
 
 ## 3. 工作台
 
-读 [04_svg_stage.md](references/workflow/04_svg_stage.md)。模型先 checkout 当前页，编辑返回的候选，再通过 store CLI 提交 author=model、candidate、base_revision。_internal/02_svg_source 是可重建兼容视图，不是生成脚本写入位置。
+读 [04_svg_stage.md](references/workflow/04_svg_stage.md)。模型可以通过 store CLI 新增或删除页面；新增页提交完整 candidate 与 page 元数据，删除页提交 page_key、base_revision 与 base_order。已有页先 checkout 当前页，编辑返回的候选，再提交 author=model、candidate、base_revision。_internal/02_svg_source 是可重建兼容视图，不是生成脚本写入位置。
 读取 notes、protected 与待办 tasks；冲突时保留候选并重新读取。遗漏用户操作会被拦下，明确改写范围只来自浏览器任务授权。
 用 check --summary 批量检查本轮页面，再逐页查看当前 PNG、记录实际 inspect。打开工作台与反馈恢复见 [07_visual_review.md](references/workflow/07_visual_review.md)；反馈不是批准，未完成反馈不阻止独立输出。运行在 DSH 时用 `review_open` 自动加载同一工作台到侧栏；非 DSH 自动启动或复用 `planners-review-core` 本地宿主。两路共用同一份 Workbench Store、草稿和命令回执。
 结束条件：本轮提交有保存回执，技术问题与实际看图结果可查。工作台可继续修改，没有永久 COMPLETE。
 
 ## 4. 输出
 
-网页先保存末次输入并提交 snapshot；宿主唤醒携带确切 snapshot.path。运行 `python scripts/orchestrate/ppt_pipeline.py <project> export --snapshot <snapshot.json绝对路径>` 消费选定版本；指定无效路径直接报错。未指定路径时，`export` 才固定当前页面、页序与资产。
+网页先保存末次输入、页序和页面集合并提交 snapshot；宿主唤醒携带确切 snapshot.path。运行 `python scripts/orchestrate/ppt_pipeline.py <project> export --snapshot <snapshot.json绝对路径>` 消费选定版本；指定无效路径直接报错。未指定路径时，`export` 才固定当前页面、页序与资产。
 控制器校验冻结画面。slides 的 PPT、notes 与转换报告在 `_internal/06_ppt_output/<snapshot_id>/`；export 的 output_path 指向实际输出，根 final_deck.pptx 只是最新兼容副本。video 返回不可变 snapshot.json 给 Video Craft。
 PPT 用实际渲染预览运行 `export-inspect --snapshot <同一snapshot.json> --previews <实际PNG...> --note "<工具与发现>"`，绑定该次输出，不要求工作台停止编辑。没有渲染工具就报告未复核，保留 EXPORT_VERIFY；快照校验范围见 [项目契约](references/contracts/project_contract.md)。
 视频保留声明、脚本绑定、稳定元素与步骤钩子。报告 content_delta / changed_needs_check；它们不证明新文本与已录音语义一致。动效与合成规范归 Video Craft。

@@ -18,6 +18,7 @@ from canvas_frame import project_frame
 
 STORE = '_internal/06_workbench'
 VIEW = '_internal/02_svg_source'
+PNG = '_internal/03_png_preview/pages'
 ID_ATTR = 'data-workbench-id'
 XLINK = '{http://www.w3.org/1999/xlink}href'
 KEY = re.compile(r'[A-Za-z][A-Za-z0-9_-]{0,63}')
@@ -222,6 +223,13 @@ def view_bytes(root, revision):
 
 
 def rebuild(root, head, check=True):
+    if head.get('collection_managed'):
+        update_content_collection(root, head)
+        for key in head.get('deleted_pages', {}):
+            for directory, suffix in ((VIEW, '.svg'), (PNG, '.png')):
+                path = Path(root) / directory / (key + suffix)
+                if path.is_file():
+                    path.unlink()
     for key in head['order']:
         revision = head['pages'].get(key, {}).get('revision')
         if not revision:
@@ -645,6 +653,13 @@ def make_snapshot(root, head, purpose, operation_id=None):
                 'canvas': project_frame(root).as_dict(),
                 'input_kind': 'standalone' if standalone else 'production'}
     snapshot['content_binding'] = 'changed_needs_check' if any(p['content_delta'] for p in records) else 'baseline'
+    if binding and upstream.get('visual_plan_snapshot'):
+        declarations = declaration_data.get('screens', declaration_data.get('blueprints', []))
+        declared = [item.get('screen_id', item.get('blueprint_id')) for item in declarations]
+        snapshot['collection_delta'] = {'added': [key for key in head['order'] if key not in declared],
+                                        'removed': [key for key in declared if key not in head['order']]}
+        if any(snapshot['collection_delta'].values()):
+            snapshot['content_binding'] = 'changed_needs_check'
     if head['route'] == 'video' and standalone:
         snapshot['content_binding'] = 'unbound'
     atomic(directory / 'snapshot.json', encoded(snapshot))
@@ -702,6 +717,96 @@ def load_snapshot(root, path):
         if name.endswith('_snapshot') and name not in ('visual_plan_snapshot', 'script_snapshot'):
             checked(value, upstream.get(name[:-len('_snapshot')] + '_sha256'))
     return {**data, 'ok': True, 'path': str(path), 'root': str(path.parent)}
+
+
+def _page_input(command):
+    value = command.get('page') if isinstance(command.get('page'), dict) else command
+    key = value.get('page_key') or command.get('page_key')
+    if not isinstance(key, str) or not KEY.fullmatch(key):
+        raise StoreError('invalid_page', 'A new page needs a stable page_key')
+    assets = value.get('source_assets', [])
+    if not isinstance(assets, list) or any(not isinstance(item, str) for item in assets):
+        raise StoreError('invalid_page', 'source_assets must be an array of asset IDs')
+    if value.get('mode', '读') not in ('讲', '读'):
+        raise StoreError('invalid_page', 'mode must be 讲 or 读')
+    return key, {
+        'page_key': key,
+        'title': str(value.get('title') or key),
+        'content': str(value.get('content') or ''),
+        'notes': str(value.get('notes') or ''),
+        'mode': value.get('mode') or '读',
+        'source_assets': list(value.get('source_assets') or []),
+        'copy_confirmed': value.get('copy_confirmed') is True,
+    }
+
+
+def update_content_collection(root, head):
+    path = Path(root) / '_internal/01_content/page_content.json'
+    data = load(path, {})
+    previous = {page.get('page_key'): page for page in data.get('pages', [])}
+    pages = [previous.get(key) or copy.deepcopy(head['pages'][key]['input']) for key in head['order']]
+    data['pages'] = pages
+    available = {asset.get('asset_id') for asset in load(Path(root) / '_internal/00_project/source/source_assets.json', {}).get('assets', [])}
+    used = {asset for page in pages for asset in page.get('source_assets', [])}
+    unused = dict(data.get('unused_assets') or {})
+    for asset in sorted(used): unused.pop(asset, None)
+    for asset in sorted(available - used): unused.setdefault(asset, 'Page removed from the workbench; source asset retained.')
+    data['unused_assets'] = unused
+    desired = encoded(data)
+    if not path.is_file() or path.read_bytes() != desired:
+        atomic(path, desired)
+
+
+def add_page(root, head, command, prepared_candidate, operation_id):
+    if prepared_candidate is None:
+        raise StoreError('missing_candidate', 'Adding a page needs a complete candidate SVG')
+    key, page_input = _page_input(command)
+    if key in head['pages'] or key in head.get('deleted_pages', {}):
+        raise StoreError('duplicate_page', 'Page key already exists', page_key=key)
+    if command.get('base_order') != head['order']:
+        raise StoreError('conflict', 'Page order changed')
+    available = {asset['asset_id'] for asset in load(Path(root) / '_internal/00_project/source/source_assets.json', {}).get('assets', [])}
+    if set(page_input['source_assets']) - available:
+        raise StoreError('invalid_page', 'Unknown source asset IDs')
+    candidate = Path(prepared_candidate)
+    before = command.get('before_page_key')
+    if before is not None and before not in head['order']:
+        raise StoreError('unknown_page', 'before_page_key is not in the current order')
+    tree = parse_svg(candidate.read_text())
+    record = create_revision(root, key, xml(tree), candidate.parent, page_input['notes'], {}, 'model', None, operation_id)
+    head['pages'][key] = {'revision': record['revision'], 'baseline_revision': record['revision'],
+                          'title': page_input['title'], 'input': page_input}
+    order = list(head['order'])
+    if before is None:
+        order.append(key)
+    else:
+        order.insert(order.index(before), key)
+    head['order'] = order
+    head['collection_managed'] = True
+    return {'ok': True, 'page_key': key, 'revision': record['revision'], 'order': order, 'added': True}
+
+
+def delete_page(root, head, command):
+    key = command.get('page_key')
+    if key not in head['pages']:
+        raise StoreError('unknown_page', 'Unknown page', page_key=key)
+    if len(head['order']) <= 1:
+        raise StoreError('last_page', 'Cannot delete the only page')
+    if command.get('base_order') != head['order']:
+        raise StoreError('conflict', 'Page order changed')
+    current = head['pages'][key]
+    if command.get('base_revision') != current['revision']:
+        raise StoreError('conflict', 'Page changed before deletion', current_revision=current['revision'])
+    head.setdefault('deleted_pages', {})[key] = {**copy.deepcopy(current), 'deleted_at': now()}
+    head['order'].remove(key)
+    head['pages'].pop(key)
+    head['collection_managed'] = True
+    for task in head['tasks'].values():
+        if task.get('status') == 'pending' and key in task.get('pages', {}):
+            task.setdefault('removed_pages', {})[key] = task['pages'].pop(key)
+            if not task['pages']:
+                task['status'] = 'cancelled'
+    return {'ok': True, 'page_key': key, 'order': list(head['order']), 'deleted': True}
 
 
 def commit(root, command, browser=False):
@@ -763,6 +868,12 @@ def commit(root, command, browser=False):
             atomic(request_path, encoded(command))
             if op == 'save':
                 result = save_page(root, head, command, browser, prepared_candidate)
+            elif op == 'add_page':
+                if browser: raise StoreError('invalid_command', 'Page creation is a model workbench action')
+                result = add_page(root, head, command, prepared_candidate, identity)
+            elif op == 'delete_page':
+                if browser: raise StoreError('invalid_command', 'Page deletion is a model workbench action')
+                result = delete_page(root, head, command)
             elif op == 'feedback':
                 if not browser:
                     raise StoreError('human_action_required', 'Feedback authorization is submitted by the workbench')
@@ -859,7 +970,7 @@ def record_render(root, key, revision, png, renderer):
         result = {'revision': revision, 'png_sha256': digest(data), 'svg_sha256': record['svg_sha256'],
                   'assets': record['assets'], 'renderer': renderer, 'created_at': now()}
         atomic(target.parent / 'render.json', encoded(result))
-        if head['pages'][key]['revision'] == revision:
+        if head['pages'].get(key, {}).get('revision') == revision:
             atomic(root / '_internal/03_png_preview/pages' / (key + '.png'), data)
         return result
 

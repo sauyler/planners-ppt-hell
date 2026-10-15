@@ -408,3 +408,11 @@ SIGKILL 升级、身份比对只在一家修过）。现在收进 `planners-revi
 ## 更早
 
 v5.2.1（描边保真：删掉描边上的 `* 0.6` 系数，新增低于 0.5pt 的告警）及更早的改动只记在 `CHANGELOG.md`。**更新这一节之前先看 `references/architecture.md` 的「动了 X 会牵连什么」**——边界变了就同步改它，然后把这次改动记到这里。
+
+## 2026-10-15 · 页面集合操作、页序交接与大字编辑
+
+| 做了什么 | 为什么 | 影响了哪些 module | 删了什么 |
+|---|---|---|---|
+| 工作台 Store 增加模型可用的 `add_page` / `delete_page`，用页集合与版本 CAS 保持可恢复；审阅页刷新时同步新增、删除页面 | 页面增删是页面集合的正常编辑，不应被旧的固定集合假设挡住 | `scripts/workbench_store.py`、`assets/review/review.html`、`scripts/generate_review_html.py` | “页面集合固定、不可增删”的旧限制 |
+| 快照保留 `order` 并把集合变化写入 `collection_delta`；交给 Video Craft 后，页序变化会使时间线进入待复核状态 | 拖动页序必须成为下游明确可见的交接数据，不能沿用旧时间轴 | PPT snapshot 与 Video Craft `snapshot_input.py`、`generate-composition.py` | 只比较 SVG/素材、不比较页序的静默路径 |
+| 大字画布编辑器使用不换行输入并按可用画布调整尺寸 | 避免 CSS 自动软换行把一次文字修改变成意外的多行版式 | `assets/review/review.html` | `overflow-wrap:anywhere` 导致的隐式换行 |

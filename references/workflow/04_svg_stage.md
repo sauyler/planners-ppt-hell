@@ -57,7 +57,16 @@ python scripts/orchestrate/ppt_pipeline.py <project> inspect --page alpha --rend
 
 ## 页序与反馈收尾
 
-store 不提供 add-page / delete-page 命令；不要猜测不存在的接口。order 只调整现有页序，包含每一页且只出现一次，同时携带当前 base_order。需要新增/删页先核对当前内容与存储接口，不能只改页序或删除 SVG 冒充完成。
+模型可以通过 Workbench Store 增删页面。新增页提交 `op=add_page`、完整 candidate SVG、`page`（page_key/title/content/notes/mode/source_assets）和当前 `base_order`，可用 `before_page_key` 插入指定位置；删除页提交 `op=delete_page`、page_key、当前 base_revision 和 `base_order`。操作会保留历史 revision，更新 store order，并让下次 review / snapshot 看见新页集合；不能删除唯一页面。不要只改 page_content.json 或删除 SVG 冒充完成。
+
+示例：
+
+```json
+{"op":"add_page","operation_id":"add_gamma_01","candidate":"<完整候选 SVG>","base_order":["alpha","omega"],"before_page_key":"omega","page":{"page_key":"gamma","title":"新增页","content":"…","notes":"…","mode":"读"}}
+{"op":"delete_page","operation_id":"delete_gamma_01","page_key":"gamma","base_revision":"<当前revision>","base_order":["alpha","gamma","omega"]}
+```
+
+`order` 继续只调整现有页序，包含每一页且只出现一次，同时携带当前 `base_order`。页面拖动后，提交 `order` 的回执才算完成；`snapshot` 固定 store 的最新 order，Video Craft 必须消费该 snapshot 的 `order`，不能重新读取 visual-plan 或按文件名排序。
 
 通过同一 JSON stdin 接口完成任务：
 

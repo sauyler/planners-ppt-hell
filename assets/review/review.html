@@ -87,7 +87,7 @@ header small{display:none}
 .preview img#slide{width:100%;height:100%;object-fit:contain;background:var(--dsw-alias-bg-layer-1);user-select:none;display:block}
 .preview.marking{cursor:crosshair;touch-action:none}
 .preview.marking .svg-stage-wrap,.preview.marking .region-overlay{pointer-events:none}
-.inline-canvas-editor{position:absolute;z-index:12;display:block;resize:none;overflow:hidden;padding:3px 5px;border:2px solid var(--ds-static-blue-500,var(--dsw-static-blue-500));border-radius:3px;background:#fff!important;color:#0b0b10!important;caret-color:#0b0b10;box-shadow:var(--dsw-elevation-panel);line-height:1.12;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.inline-canvas-editor{position:absolute;z-index:12;display:block;resize:none;padding:3px 5px;border:2px solid var(--ds-static-blue-500,var(--dsw-static-blue-500));border-radius:3px;background:#fff!important;color:#0b0b10!important;caret-color:#0b0b10;box-shadow:var(--dsw-elevation-panel);line-height:1.12;white-space:pre;overflow-wrap:normal;overflow:auto;user-select:text}
 .inline-canvas-editor:focus{outline:none}
 
 /* Live Inline SVG Overlay */
@@ -499,7 +499,7 @@ const numBadge=i=>CIRCLED[i]||String(i+1);
 const TAG_NAMES={text:'文字',rect:'色块',line:'线条',circle:'圆形',ellipse:'椭圆',path:'图形',polygon:'图形',polyline:'线条',image:'图片',g:'模块'};
 const tagLabel=t=>TAG_NAMES[t]||'元素';
 
-const state=Object.fromEntries(data.pages.map(p=>[p.key,{
+const initialPageState=p=>({
   feedback:'',
   decision:'pass',
   rewrite_elements:[],
@@ -513,7 +513,8 @@ const state=Object.fromEntries(data.pages.map(p=>[p.key,{
   save_status:'clean',
   pending_save:null,
   task:null
-}]));
+});
+const state=Object.fromEntries(data.pages.map(p=>[p.key,initialPageState(p)]));
 
 function updateTemplateDecisionUI(){
   if(data.route!=='template')return;
@@ -1079,13 +1080,14 @@ function positionInlineCanvasEditor(){
   else elRect=session.lastRect||{left:previewRect.left,top:previewRect.top,width:84,height:28};
   const left=Math.max(0,elRect.left-previewRect.left-4);
   const top=Math.max(0,elRect.top-previewRect.top-4);
-  const width=Math.min(previewRect.width-left,Math.max(84,elRect.width+12));
-  const height=Math.min(previewRect.height-top,Math.max(28,elRect.height+10));
+  const width=Math.min(previewRect.width-left,Math.max(84,elRect.width+18));
+  const height=Math.max(28,elRect.height+10);
   const style=getComputedStyle(el);
   const matrix=el.getScreenCTM();
   const fontScale=matrix?Math.hypot(matrix.a,matrix.b):1;
   Object.assign(editor.style,{left:left+'px',top:top+'px',width:width+'px',height:height+'px',
     font:style.font,fontSize:(parseFloat(style.fontSize)*fontScale)+'px',lineHeight:'1.12',
+    letterSpacing:style.letterSpacing==='normal'?'normal':(parseFloat(style.letterSpacing)*fontScale)+'px',
     textAlign:style.textAnchor==='middle'?'center':'left'});
 }
 function endInlineTextEdit(commit=true){
@@ -1151,6 +1153,7 @@ function startInlineTextEdit(el){
   const text=extractTextState(el);
   const editor=$('#inlineCanvasEditor');
   inlineEditorState={el,pageKey:page().key,reviewId:selectedReviewId,dirty:false,historyBefore:null,composing:false};
+  editor.wrap='off';
   editor.value=text.text;
   editor.hidden=false;
   editor.setAttribute('data-review-id',selectedReviewId);
@@ -1864,6 +1867,26 @@ async function syncFromHost(){
   if(!canCommand)return;
   try{
     const head=await workbenchCommand({op:'state'});
+    const collectionChanged=head.order.length!==data.pages.length||head.order.some(key=>!state[key]);
+    if(collectionChanged){
+      if(inlineEditorState||data.pages.some(pageDirty)||saveQueues.size||pageOrderChanged()){
+        retainRecoveryDraft();note('页面集合已更新；请先保存当前编辑，再刷新页面集合。','error');return false;
+      }
+      const selected=page()?.key;
+      for(const key of head.order){
+        if(state[key])continue;
+        const p={key,title:head.pages[key].title||key,assets:[],notes:'',history:[],
+          png:'_internal/03_png_preview/pages/'+key+'.png',svg:'_internal/02_svg_source/'+key+'.svg',
+          version:head.pages[key].revision,preview_pending:true};
+        state[key]=initialPageState(p);data.pages.push(p);
+        await mergeStoredPage(p,await workbenchCommand({op:'get',page_key:key}));
+      }
+      data.pages=data.pages.filter(p=>head.order.includes(p.key));
+      for(const key of Object.keys(state))if(!head.pages[key])delete state[key];
+      pageOrder=[...head.order];initialPageOrder.splice(0,initialPageOrder.length,...head.order);
+      index=Math.max(0,pageOrder.indexOf(selected));
+      drawRail();await render();
+    }
     for(const p of data.pages){
       const revision=head.pages?.[p.key]?.revision;
       if(!revision||revision===p.revision||saveQueues.has(p.key))continue;
@@ -1960,7 +1983,7 @@ async function push(wake){
 
 const SAVE_DELAY_MS=500;
 const saveQueues=new Map();
-let canCommand=false,saveTimer=null,orderCommand=null,dispatchBusy=false,pendingDispatch=null;
+let canCommand=false,saveTimer=null,orderCommand=null,orderSavePromise=null,orderSaveError=false,dispatchBusy=false,pendingDispatch=null;
 let pendingSnapshot=null,lastOutput=null,exportBusy=false;
 let recoveryReady=false;
 const editSignature=edits=>JSON.stringify(edits||[]);
@@ -2098,8 +2121,8 @@ async function savePage(p){
 function drawSaveStatus(){
   const states=Object.values(state).map(s=>s.save_status);
   const draftPending=canDraft&&draftSignature()!==lastDraftSaved;
-  const status=states.includes('conflict')?'conflict':states.includes('error')||feedbackSaveStatus==='error'?'error':
-    states.includes('saving')||states.includes('pending')||data.pages.some(pageDirty)||draftPending?'saving':'clean';
+  const status=states.includes('conflict')?'conflict':states.includes('error')||feedbackSaveStatus==='error'||orderSaveError?'error':
+    states.includes('saving')||states.includes('pending')||data.pages.some(pageDirty)||pageOrderChanged()||orderSavePromise||draftPending?'saving':'clean';
   const label={clean:'已保存',saving:'保存中',error:'保存失败',conflict:'版本冲突'};
   $('#pageStatus').textContent=label[status];
   $('#retrySave').hidden=!['error','conflict'].includes(status);
@@ -2107,15 +2130,23 @@ function drawSaveStatus(){
   updateRail([page().key]);
 }
 async function saveOrder(){
+  if(orderSavePromise)return orderSavePromise;
   if(!pageOrderChanged())return true;
-  try{
-    if(!orderCommand)orderCommand={op:'order',operation_id:'order_'+uid(),order:[...pageOrder],base_order:[...initialPageOrder]};
-    const receipt=await workbenchCommand(orderCommand);
-    if(!validPageOrder(receipt.order))throw new Error('未收到页序保存回执');
-    initialPageOrder.splice(0,initialPageOrder.length,...receipt.order);orderCommand=null;
-    retainRecoveryDraft();
-    return !pageOrderChanged()||await saveOrder();
-  }catch(error){note('页序未保存：'+error.message,'error');retainRecoveryDraft();return false}
+  orderSaveError=false;
+  const work=(async()=>{
+    try{
+      while(pageOrderChanged()){
+        if(!orderCommand)orderCommand={op:'order',operation_id:'order_'+uid(),order:[...pageOrder],base_order:[...initialPageOrder]};
+        const receipt=await workbenchCommand(orderCommand);
+        if(!validPageOrder(receipt.order))throw new Error('未收到页序保存回执');
+        initialPageOrder.splice(0,initialPageOrder.length,...receipt.order);orderCommand=null;
+        retainRecoveryDraft();
+      }
+      return true;
+    }catch(error){orderSaveError=true;note('页序未保存：'+error.message,'error');retainRecoveryDraft();return false}
+  })();
+  orderSavePromise=work;
+  try{return await work}finally{orderSavePromise=null;drawSaveStatus()}
 }
 async function flushWorkbench(pages=data.pages){
   endInlineTextEdit(true);clearTimeout(saveTimer);

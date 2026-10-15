@@ -50,6 +50,44 @@ class WorkbenchTests(unittest.TestCase):
                    'candidate': str(path), **extra}
         return store.commit(self.root, command)
 
+    def add_page(self, key='p2', before=None):
+        candidate = self.write('new-page.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text id="new-title" x="10" y="20">New page</text></svg>')
+        current = store.ensure(self.root)
+        command = {'op': 'add_page', 'operation_id': 'add_' + store.uuid.uuid4().hex,
+                   'candidate': str(candidate), 'base_order': list(current['order']),
+                   'page': {'page_key': key, 'title': 'New page', 'content': 'New page', 'mode': '读'}}
+        if before: command['before_page_key'] = before
+        return store.commit(self.root, command)
+
+    def test_model_can_add_page_with_candidate_and_order(self):
+        result = self.add_page('new', 'p2')
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['order'], ['p1', 'new', 'p2'])
+        state = store.commit(self.root, {'op': 'state'})
+        self.assertEqual(state['order'], ['p1', 'new', 'p2'])
+        self.assertEqual(store.get_page(self.root, 'new')['revision'], result['revision'])
+
+    def test_model_can_delete_page_but_not_last_page(self):
+        self.add_page('new')
+        result = store.commit(self.root, {'op': 'delete_page', 'operation_id': 'delete_' + store.uuid.uuid4().hex,
+                                          'page_key': 'new', 'base_revision': store.get_page(self.root, 'new')['revision'], 'base_order': ['p1', 'p2', 'new']})
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['order'], ['p1', 'p2'])
+        result = store.commit(self.root, {'op': 'delete_page', 'operation_id': 'delete_last_' + store.uuid.uuid4().hex,
+                                          'page_key': 'p2', 'base_revision': store.get_page(self.root, 'p2')['revision'], 'base_order': ['p1', 'p2']})
+        self.assertTrue(result['ok'], result)
+        result = store.commit(self.root, {'op': 'delete_page', 'operation_id': 'delete_only_' + store.uuid.uuid4().hex,
+                                          'page_key': 'p1', 'base_revision': store.get_page(self.root, 'p1')['revision'], 'base_order': ['p1']})
+        self.assertEqual(result['code'], 'last_page')
+
+    def test_page_collection_operations_require_current_order(self):
+        result = self.add_page('new')
+        self.assertTrue(result['ok'])
+        candidate = self.write('new2.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text id="new-title" x="10" y="20">New page</text></svg>')
+        result = store.commit(self.root, {'op': 'add_page', 'operation_id': 'add_conflict', 'candidate': str(candidate),
+             'base_order': ['p2','p1'], 'page': {'page_key':'new2','title':'New2'}})
+        self.assertEqual(result['code'], 'conflict')
+
     def test_human_save_survives_restart_without_feedback(self):
         old = store.get_page(self.root, 'p1')
         result = self.save([{'element_id': 'title', 'kind': 'text', 'value': '用户改字'}])
@@ -285,6 +323,23 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(original, copied)
         self.assertEqual(snap['content_binding'], 'changed_needs_check')
         self.assertEqual((Path(snap['root']) / 'upstream/script.md').read_bytes(), script.read_bytes())
+
+    def test_video_collection_delta_preserves_original_plan(self):
+        _, plan = self.bind_video()
+        original = plan.read_bytes()
+        self.assertTrue(self.add_page('new')['ok'])
+        snap = store.snapshot(self.root, 'video')
+        self.assertEqual(snap['collection_delta'], {'added': ['new'], 'removed': []})
+        self.assertEqual(snap['content_binding'], 'changed_needs_check')
+        self.assertEqual((Path(snap['root']) / 'upstream/visual-plan.json').read_bytes(), original)
+
+    def test_delete_conflicts_with_new_human_revision(self):
+        old = store.get_page(self.root, 'p1')['revision']
+        self.save([{'element_id':'title','kind':'text','value':'Keep human edit'}])
+        result = store.commit(self.root, {'op':'delete_page','operation_id':'stale_delete',
+            'page_key':'p1','base_revision':old,'base_order':['p1','p2']})
+        self.assertFalse(result['ok'])
+        self.assertIn('p1', store.ensure(self.root)['order'])
 
     def test_changed_upstream_script_blocks_false_binding(self):
         script, _ = self.bind_video()

@@ -177,6 +177,26 @@ class WorkbenchPipelineTests(unittest.TestCase):
                for shape in slide.shapes if shape.has_text_frame]
         self.assertIn('Original',texts);self.assertNotIn('Later',texts)
 
+    def test_add_delete_collection_exports_current_order(self):
+        candidate=self.root/'extra.svg';candidate.write_text(svg('Added page'))
+        added=store.commit(self.root,self.command(op='add_page',candidate=str(candidate),
+            page={'page_key':'extra','title':'Extra','content':'Added page'},
+            base_order=['alpha','omega'],before_page_key='omega'))
+        self.assertTrue(added['ok'],added)
+        deleted=store.commit(self.root,self.command(op='delete_page',page_key='alpha',
+            base_revision=store.get_page(self.root,'alpha')['revision'],base_order=['alpha','extra','omega']))
+        self.assertTrue(deleted['ok'],deleted)
+        self.assertEqual([p['page_key'] for p in ps.content(self.root)['pages']],['extra','omega'])
+        content_path=self.root/ps.CONTENT
+        modified=content_path.stat().st_mtime_ns
+        store.ensure(self.root)
+        self.assertEqual(content_path.stat().st_mtime_ns,modified)
+        record=pipeline.export(self.root)
+        self.assertEqual(record['order'],['extra','omega'])
+        slides=Presentation(record['output_path']).slides
+        self.assertEqual(len(slides),2)
+        self.assertIn('Added page',[shape.text for shape in slides[0].shapes if shape.has_text_frame])
+
     def test_invalid_selected_snapshot_never_falls_back(self):
         frozen=store.snapshot(self.root)
         Path(frozen['root'],'scenes','alpha.svg').write_text(svg('Tampered'))

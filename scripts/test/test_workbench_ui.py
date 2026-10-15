@@ -170,6 +170,37 @@ class WorkbenchBrowserTests(WorkbenchGeneratorTests):
         tree = ET.fromstring(get_page(self.root, key)['svg'])
         return next(node.text for node in tree.iter() if node.get('id') == 'heading')
 
+    def test_large_text_editor_does_not_soft_wrap(self):
+        self.page.evaluate("""() => {
+          const text=document.querySelector('#svgStageWrap text');
+          text.setAttribute('font-size','92');text.textContent='大字号标题编辑不应自动换行';
+        }""")
+        self.page.locator('#svgStageWrap text').first.dblclick()
+        editor=self.page.locator('#inlineCanvasEditor')
+        editor.fill('大字号标题编辑不应自动换行大字号标题编辑不应自动换行')
+        dimensions=editor.evaluate('(e)=>({wrap:e.wrap,height:e.clientHeight,scroll:e.scrollHeight,whiteSpace:getComputedStyle(e).whiteSpace})')
+        self.assertEqual(dimensions['wrap'], 'off')
+        self.assertEqual(dimensions['whiteSpace'], 'pre')
+        self.assertLessEqual(dimensions['scroll'], dimensions['height']+2)
+        self.assertTrue(self.flush())
+        self.assertEqual(self.text(), '大字号标题编辑不应自动换行大字号标题编辑不应自动换行')
+
+    def test_model_add_delete_updates_open_workbench(self):
+        candidate=self.root / 'new.svg'
+        candidate.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><text id="new" x="100" y="100">New page</text></svg>')
+        result=commit(self.root, {'op':'add_page','operation_id':'new_page','author':'model',
+            'candidate':str(candidate),'page':{'page_key':'extra','title':'Extra'},'base_order':['alpha','omega']})
+        self.assertTrue(result['ok'])
+        self.assertTrue(self.page.evaluate('() => syncFromHost()'))
+        self.assertEqual(self.page.evaluate('pageOrder'), ['alpha','omega','extra'])
+        result=commit(self.root, {'op':'delete_page','operation_id':'remove_page',
+            'page_key':'alpha','base_revision':get_page(self.root,'alpha')['revision'],
+            'base_order':['alpha','omega','extra']})
+        self.assertTrue(result['ok'])
+        self.assertTrue(self.page.evaluate('() => syncFromHost()'))
+        self.assertEqual(self.page.evaluate('pageOrder'), ['omega','extra'])
+        self.assertEqual(self.errors, [])
+
     def test_autosave_survives_reload_without_model_or_approval(self):
         self.edit('Human durable text')
         self.page.wait_for_function("state.alpha.saved_edits.some(e=>e.text==='Human durable text')")
