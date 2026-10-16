@@ -930,8 +930,24 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
               hint="重排、断行或换表达，不要靠缩字塞回去；框是估算的，先在渲染 PNG 上确认这一处。")
 
     # ── Empty slide ──
-    if not text_nodes and not image_nodes:
-        W("EMPTY_SLIDE", "Page has neither text nor image — nothing to look at",
+    # 「空」= 既没有字、也没有图。**矢量线稿也是图**（2026-10-16：纯线稿页被误报成空页，
+    # 整页只有一笔滤杯线稿、按设计就是不放字）。只有「一张铺满画布的背景矩形」才算没有图。
+    def _is_backdrop(node):
+        if node.tag.split('}')[-1] != 'rect':
+            return False
+        try:
+            width = float(node.get('width', 0))
+            height = float(node.get('height', 0))
+        except (TypeError, ValueError):
+            return False
+        return width >= frame.width * 0.99 and height >= frame.height * 0.99
+
+    drawable_nodes = [node for node in root.iter()
+                      if node.tag.split('}')[-1] in ('path', 'circle', 'ellipse', 'polygon',
+                                                     'polyline', 'line', 'rect')
+                      and not _is_backdrop(node)]
+    if not text_nodes and not image_nodes and not drawable_nodes:
+        W("EMPTY_SLIDE", "Page has neither text, image nor drawing — nothing to look at",
           target="svg_structure")
 
     all_issues = errors + warnings + infos

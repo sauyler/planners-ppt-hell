@@ -371,6 +371,16 @@
 - **证据**：`test_review_reported_bugs.py::test_version_conflict_saves_onto_the_newest_revision`（先红：`'别人的字' != '人改的字'`）、`::test_unreplayable_conflict_keeps_the_input`（先红：提示里没有元素名，只有「版本冲突，输入和恢复草稿仍保留」）、`::test_notes_only_conflict_is_rebased_too`（先红：`'别人的备注' != '第二版备注'`）、`::test_conflict_whose_input_already_landed_just_goes_clean`（先红：`'conflict' != 'clean'`）；以及真机现场数据（`beat-06` 副本）：点一下即 `clean`、store 不多造版本、草稿记住新基版。
 - **状态**：已升级（2026-10-16）
 
+### G-38 纯矢量线稿页被判成「空页」
+
+- **module**：`scripts/validate_svg_layout.py`（`EMPTY_SLIDE`）
+- **现象**：一页只有矢量线条（`path` / `circle` / `rect`）、按设计**不放字**时，`check` 报 `EMPTY_SLIDE「Page has neither text nor image — nothing to look at」`。真实项目 `beat-01`（整页一笔滤杯坐在分享壶上的线稿）就是这样被误判的；页面上明明有主体，却被当成空白页。
+- **原因**：空页判据只统计 `text_nodes` 与 `image_nodes` 两类，把「图」等同于 `<image>` 位图 —— 矢量绘制不在其中。视频路线里"只画不写"是常见形态（参考图形、纯线稿开场），这条判据把合法的画面判成了空。
+- **行为修正**：空页 = 既没有字、没有位图、**也没有矢量绘制**。判定时把 `path`/`circle`/`ellipse`/`polygon`/`polyline`/`line`/`rect` 都算进来，只把「一张铺满画布的背景矩形」排除（那才等于什么都没有）。
+- **证据**：`check --pages beat-01` 修前 `['EMPTY_SLIDE']`、修后 `[]`（同一份 SVG）。
+- **状态**：已升级（2026-10-16）
+
+---
 ---
 
 ## 这个文件不收什么（附理由）
