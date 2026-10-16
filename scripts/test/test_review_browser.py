@@ -97,7 +97,8 @@ class ReviewBrowserTests(unittest.TestCase):
                 self.assertNotIn('{{REVIEW_BRIDGE}}', html, '宿主 serve 时必须替换注入点')
                 self.assertIn('/__review/bridge.js', html)
                 self.assertTrue(page.evaluate('() => !!window.ReviewBridge'), '桥必须已经就位')
-                self.assertIn('已连接审阅宿主（http）', page.locator('#bridgeState').inner_text())
+                self.assertIn('已连接', page.locator('#bridgeState').inner_text())
+                self.assertIn('http', page.locator('#bridgeState').inner_text())
                 # 桥交到页面手里的能力现在可靠（公共件修掉了"对象属性不跟着闭包更新"）
                 capabilities = page.evaluate('() => review.capabilities')
                 self.assertIn('asset-upload', capabilities, '宿主声明了上传能力，桥必须把它交到页面手里')
@@ -613,13 +614,15 @@ class ReviewBrowserTests(unittest.TestCase):
                 self.assertEqual(draft['pages']['alpha']['feedback'], '这句还没提交',
                                  '没提交的意见必须自动落到 draft 文件里')
 
-                # 点「重新加载」：这次应当真的刷新（草稿已经安全），而东西不该丢
+                # 点「刷新」：现在是**原地同步**（宿主把集合/页序/新版本推过来），不整页 reload。
+                # 判据不变：草稿已经落盘，同步之后那句话还在原地。
                 page.evaluate("() => { window.__beforeReload = true }")
-                page.get_by_text('重新加载', exact=True).click()
-                page.wait_for_function("() => window.__beforeReload === undefined", timeout=10000)
-                page.wait_for_function("document.querySelector('#feedback').value.length > 0", timeout=10000)
+                page.click('#reload')
+                page.wait_for_timeout(1500)
+                self.assertTrue(page.evaluate("() => window.__beforeReload === true"),
+                                '原地同步不该把整页刷掉')
                 self.assertEqual(page.input_value('#feedback'), '这句还没提交',
-                                 '刷新之后草稿要读回来，页面就是刷新前的样子')
+                                 '同步之后草稿要读回来，页面就是同步前的样子')
         finally:
             for item in hosts: review_host.stop_host(item)
             fixture.tearDown()
@@ -697,7 +700,7 @@ class ReviewBrowserTests(unittest.TestCase):
                   box.value = '这句还没提交';
                   box.dispatchEvent(new Event('input', { bubbles: true }));
                 }""")
-                page.get_by_text('重新加载', exact=True).click()
+                page.click('#reload')
                 page.wait_for_timeout(600)
                 self.assertTrue(page.evaluate("() => window.__survived === true"),
                                 '没有草稿可存时，点「重新加载」不该直接把页面刷新掉')

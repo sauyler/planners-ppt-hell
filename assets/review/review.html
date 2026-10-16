@@ -411,6 +411,15 @@ dialog textarea{width:100%;min-height:96px;font:inherit;padding:8px;border:1px s
   <p id="submitMessage"></p>
 </dialog>
 
+<dialog id="reloadDialog">
+  <h2>刷新会丢掉这些还没保存的东西</h2>
+  <p>这个宿主不支持草稿，刷新之后下面这些不会自己回来。</p>
+  <pre id="reloadWhat" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+  <div class="tools">
+    <button class="primary" onclick="location.reload()">仍然刷新</button>
+    <button onclick="document.querySelector('#reloadDialog').close()">返回</button>
+  </div>
+</dialog>
 <dialog id="fallbackDialog">
   <h2>同一项目的本地工作台</h2>
   <p>当前宿主不支持持久保存命令，改动尚未保存。请启动同一项目的本地工作台；不要新建或复制项目。</p>
@@ -803,7 +812,14 @@ function handleRailNativeDrop(e,button){
 let railButtons=new Map();
 /* 整条轨道建一次。只在换页 / 换新快照（`render()`）时用。 */
 function drawRail(){
-  const rail=$('#rail');rail.replaceChildren();
+  const rail=$('#rail');
+  /* 重建不等于换位置：整条轨道被销毁重建时，浏览器可能在这一帧里把 scrollTop 夹到新的
+   * 最大滚动量上（缩略图盒子在取图/布局的瞬间会变矮），人在侧栏里看到的就是「点一下下一页，
+   * 缩略图整条往上跳两页」。位置是人放下的，重建前记下、重建后放回去，再补一帧防住异步布局。 */
+  const keepRail=rail.scrollTop;
+  const panel=$('#reviewPanel');
+  const keepPanel=panel?panel.scrollTop:0;
+  rail.replaceChildren();
   railButtons=new Map();
   orderedPages().forEach((p,i)=>{
     const b=document.createElement('button');
@@ -845,6 +861,12 @@ function drawRail(){
     rail.append(b);
     railButtons.set(p.key,{b:b,tag:tag,i:i});
     if(canCommand)void refreshThumbnail(p);
+  });
+  rail.scrollTop=keepRail;
+  if(panel)panel.scrollTop=keepPanel;
+  if(keepRail||keepPanel)requestAnimationFrame(()=>{
+    if(Math.abs(rail.scrollTop-keepRail)>1)rail.scrollTop=keepRail;
+    if(panel&&Math.abs(panel.scrollTop-keepPanel)>1)panel.scrollTop=keepPanel;
   });
 }
 $('#rail').onpointerdown=handleRailPointerDown;
@@ -1869,9 +1891,15 @@ async function syncFromHost(){
     const head=await workbenchCommand({op:'state'});
     const collectionChanged=head.order.length!==data.pages.length||head.order.some(key=>!state[key]);
     if(collectionChanged){
-      if(inlineEditorState||data.pages.some(pageDirty)||saveQueues.size||pageOrderChanged()){
-        retainRecoveryDraft();note('页面集合已更新；请先保存当前编辑，再刷新页面集合。','error');return false;
+      /* 宿主是页面集合的事实源。逐页输入是按页 key 存的，合并集合不会丢；把「有未保存输入」
+       * 当成硬门，会在页序冲突时把人永久锁在旧集合上（模型删掉的页，侧栏里还挂着）。
+       * 只有「正在原地打字」这一个瞬间不能动 DOM。 */
+      if(inlineEditorState){
+        retainRecoveryDraft();note('正在原地改字：先收起编辑框，再同步页面集合。','error');return false;
       }
+      const dropped=data.pages.filter(p=>!head.order.includes(p.key)&&pageDirty(p)).map(p=>p.key);
+      adoptOrderFromHost(head.order);
+      if(dropped.length){retainRecoveryDraft();note('有页面在宿主侧被删掉了：'+dropped.join('、')+' 上未保存的输入留在恢复草稿里。','warn')}
       const selected=page()?.key;
       for(const key of head.order){
         if(state[key])continue;
@@ -2129,18 +2157,46 @@ function drawSaveStatus(){
   $('#previewState').textContent='';
   updateRail([page().key]);
 }
+/* 宿主是页面集合与页序的事实源。人的排序意图只对**还活着**的页有意义：重同步时存活页按
+ * 人在页面上的相对顺序保留，被删的丢掉，宿主新增的接到后面。
+ * 这一步是「页序未保存」死锁的出口 —— 旧命令的 base_order 对不上时，先把基序换成宿主的。 */
+function adoptOrderFromHost(hostOrder){
+  const host=Array.isArray(hostOrder)?hostOrder:[];
+  const wanted=pageOrder.filter(key=>host.includes(key));
+  for(const key of host)if(!wanted.includes(key))wanted.push(key);
+  const changed=wanted.length!==pageOrder.length||wanted.some((key,i)=>key!==pageOrder[i]);
+  pageOrder=wanted;
+  initialPageOrder.splice(0,initialPageOrder.length,...host);
+  orderCommand=null;
+  return changed;
+}
+async function reconcileOrderFromHost(){
+  const head=await workbenchCommand({op:'state'});
+  return adoptOrderFromHost(head.order);
+}
 async function saveOrder(){
   if(orderSavePromise)return orderSavePromise;
   if(!pageOrderChanged())return true;
   orderSaveError=false;
   const work=(async()=>{
+    let resynced=false;
     try{
       while(pageOrderChanged()){
         if(!orderCommand)orderCommand={op:'order',operation_id:'order_'+uid(),order:[...pageOrder],base_order:[...initialPageOrder]};
-        const receipt=await workbenchCommand(orderCommand);
-        if(!validPageOrder(receipt.order))throw new Error('未收到页序保存回执');
-        initialPageOrder.splice(0,initialPageOrder.length,...receipt.order);orderCommand=null;
-        retainRecoveryDraft();
+        try{
+          const receipt=await workbenchCommand(orderCommand);
+          if(!validPageOrder(receipt.order))throw new Error('未收到页序保存回执');
+          initialPageOrder.splice(0,initialPageOrder.length,...receipt.order);orderCommand=null;
+          retainRecoveryDraft();
+        }catch(error){
+          // 基序已经变了（模型加页/删页/调序）：同一个 base_order 重放多少次都是同一个冲突，
+          // 所以第一次冲突就按宿主当前集合重算基序；再失败才是真的存不上。
+          if(error.receipt&&error.receipt.code==='conflict'&&!resynced){
+            resynced=true;
+            if(await reconcileOrderFromHost())continue;
+          }
+          throw error;
+        }
       }
       return true;
     }catch(error){orderSaveError=true;note('页序未保存：'+error.message,'error');retainRecoveryDraft();return false}
@@ -2148,11 +2204,16 @@ async function saveOrder(){
   orderSavePromise=work;
   try{return await work}finally{orderSavePromise=null;drawSaveStatus()}
 }
-async function flushWorkbench(pages=data.pages){
+/* 只冲刷页面本身。页序不是「提交意见」的前置条件 —— 意见挂在页 key 上，页序存不上不该拖住它。 */
+async function flushPages(pages=data.pages){
   endInlineTextEdit(true);clearTimeout(saveTimer);
   if(!$('#regionDialog').hidden&&$('#regionNote').value.trim())saveRegion();
   let saved=true;
   for(const p of pages)if(!await savePage(p))saved=false;
+  return saved;
+}
+async function flushWorkbench(pages=data.pages){
+  let saved=await flushPages(pages);
   if(pageOrderChanged()&&!await saveOrder())saved=false;
   if(!await saveDraft())saved=false;
   drawSaveStatus();
@@ -2290,7 +2351,10 @@ async function dispatchFeedback(scope){
   if(uploads){note('请等待图片上传完成','error');return false}
   dispatchBusy=true;
   try{
-    if(!await flushWorkbench(targets))return false;
+    const pagesSaved=await flushPages(targets);
+    if(!pagesSaved){note('意见还没能存上：先点「刷新工作台」同步一次再提交；你写的东西都留着','error');return false}
+    /* 页序存不上不该拖住意见：意见挂在页 key 上，页序可以提交后再同步。 */
+    if(pageOrderChanged()&&!await saveOrder())note('页序暂未保存（不影响这次提交）：提交后点「刷新工作台」再同步一次。','warn');
     if(!pendingDispatch){
       const pages={};
       for(const p of targets){
@@ -2499,16 +2563,29 @@ function pendingWork(){
 }
 async function askReload(){
   if(syncBusy)return false;
+  /* 草稿是「刷新不丢」的正路；这条路不通时不能又变回静默丢弃 —— 先把自己会丢掉什么摆出来。 */
+  if(!canDraft){
+    const work=pendingWork();
+    if(work.length){
+      $('#reloadWhat').textContent=work.join('\n');
+      $('#reloadDialog').showModal();
+      return false;
+    }
+  }
   const btn=$('#reload')||$('#reloadButton');
   syncBusy=true;if(btn){btn.disabled=true;btn.setAttribute('aria-busy','true');}
   const railScroll=$('#rail').scrollTop,panelScroll=$('#reviewPanel').scrollTop;
   try{
     note('正在保存并同步…');
-    if(!await flushWorkbench()){note('同步未完成：当前输入尚未保存，请重试；输入已保留','error');return false}
+    /* 同步是冲突唯一的出路，所以它不能先被「存不上」挡住：能落的先落，落不上的进恢复草稿，
+     * 然后让宿主把集合/页序/新版本推过来。逐页输入按 key 存，合并时不会丢。 */
+    const flushed=await flushWorkbench();
+    if(!flushed)retainRecoveryDraft();
     const synced=await onHostChanged();
-    if(!synced){if(stale)note('版本冲突，当前输入已保留','error');return false}
     if(!await saveDraft())return false;
-    note('已同步最新页面','ok');return true;
+    if(!synced)note('已同步页面集合，但仍有没存上的输入；可点「重试保存」','warn');
+    else note(flushed?'已同步最新页面':'已同步页面集合；没存上的输入留在恢复草稿里','ok');
+    return true;
   }finally{
     $('#rail').scrollTop=railScroll;$('#reviewPanel').scrollTop=panelScroll;
     syncBusy=false;if(btn){btn.disabled=false;btn.removeAttribute('aria-busy');}
