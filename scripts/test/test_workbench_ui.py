@@ -476,7 +476,7 @@ class WorkbenchBrowserTests(WorkbenchGeneratorTests):
         self.assertEqual(self.page.locator('footer .review-primary-action:visible').count(), 1)
         self.assertEqual(self.page.locator('#saveEdits').count(), 0)
         self.assertTrue(self.page.locator('#exportOutput.review-secondary-action').is_visible())
-        self.assertEqual(self.page.locator('#reloadButton [data-review-icon="RefreshCw"]').count(), 1)
+        self.assertEqual(self.page.locator('#reload [data-review-icon="RefreshCw"]').count(), 1)
 
     def test_overall_only_feedback_restores_and_dispatches_from_dialog(self):
         self.page.evaluate('() => showSubmit()')

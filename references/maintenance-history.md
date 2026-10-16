@@ -4,6 +4,39 @@
 
 看每一条时问三件事：**边界怎么变了**、**哪些 module 被牵动**、**删掉了什么**。
 
+## 2026-10-16 · 版本冲突的出路：接续，不是终态
+
+**触发**：真人审阅时卡在 `beat-06`——他改了页面备注里的一个字，模型同时把这一页推进了一版；页面从此挂着「版本冲突」，横幅和提示都让他点「重试保存」，而那个按钮只弹同一句错，输入永远落不下去（`visual_screens/_internal/05_review/draft.json` 里那一页的 `save_status` 一直是 `conflict`）。
+
+| 动了什么 | 为什么 | 影响了哪些 module | 删了什么 |
+|---|---|---|---|
+| `retryAutosave` 对冲突页先走 `rebasePageOnHost()`：以宿主当前版本（`op:get`）为新基版，只重放**还没落盘**的直改，备注只带走人真改过的；重放不上的元素留在恢复草稿里并**点名** | 冲突检测（store 的 `base_revision` CAS）必须保留，但「不许自动覆盖新版本」不该等于「谁也不许动」；页面承诺的动作必须真的能做到 | `assets/review/review.html`、`scripts/test/test_review_reported_bugs.py` | 冲突被写死成终态的那条路径（`save_status='conflict'` 之后没有任何出口） |
+| 接新基版前把这一页归成「不脏」时，**备注连 `saved_notes` 一起归零** | 真人现场只改了备注（`saved_notes` 里存着一版）；只清 `notes` 会让 `notes!==saved_notes` 继续判脏、`mergeStoredPage` 拒接，按钮按下去毫无反应。这个只改备注的形态**只有拿真机现场数据才跑得出来**，合成用例的 `saved_notes` 是空的 | `assets/review/review.html`、`scripts/test/test_review_reported_bugs.py` | 只清 `notes` 的接续写法 |
+| 冲突文案改成说清这一步做什么：横幅指出「点重试保存把输入接到最新版本上，新版本里别的改动不会被覆盖」，失败提示带页面名与元素名 | 原来三处提示都在描述现状、不给人可执行的动作；「已保留为恢复草稿」听起来像结束 | `assets/review/review.html`、`references/workflow/07_visual_review.md`、`GOTCHAS.md` | 「输入已保留为恢复草稿，未覆盖当前版本」这类只描述状态的提示 |
+| 刷新（`askReload`）保持不变：只搬运、不替人决定谁覆盖谁；冲突的解决收在显式的「重试保存」上 | 刷新是安全动作，不能变成静默覆盖新版本的入口 | `assets/review/review.html`（注释同步更正） | 注释里「同步是冲突唯一的出路」这个已经不成立的说法 |
+
+**边界怎么变了**：冲突从「终态」变成「一个有显式出口的状态」。自动保存仍然拒绝覆盖新版本（`scheduleWorkbench` 继续跳过冲突页），接续只发生在人按下按钮之后。
+
+**回归**：新增四条浏览器断言（先红后绿）：`test_version_conflict_saves_onto_the_newest_revision`（接续后 `parent` 指向宿主当前版本、别人的备注还在）、`test_unreplayable_conflict_keeps_the_input`（元素在新版本里被删时输入不丢且被点名）、`test_notes_only_conflict_is_rebased_too`（只改备注的现场形态）、`test_conflict_whose_input_already_landed_just_goes_clean`（输入已在新版本里时不许再多存一版）。另用真机现场数据的副本跑过一次端到端：点一下 `clean`、store 不多造版本、草稿记住新基版。
+
+### 同日补一批：把上一轮重构留下的红灯收干净
+
+**触发**：全量跑（含浏览器项）时还剩 5 红 2 错，全在那次工作台重构的尾巴上。逐条定性后分三类处理：
+
+| 类型 | 条目 | 处理 |
+|---|---|---|
+| 真缺口（实现没跟上） | `confirmHistoricalRestore` 只在 HTML 里被 `onclick` 引用、**函数不存在** → 点「恢复版本」直接 `pageerror`（`test_history_restore_creates_new_revision`、`test_history_preview_…`） | 补上「只开确认框、恢复动作仍在确认按钮上」的函数；恢复仍会新建一版，不许一点就落盘 |
+| 真缺口（实现没跟上） | 草稿里的直改按**元素树路径**恢复，却只看「有没有变」、不看**画面版本**：模型重出过这一页之后，同一个路径已经指到别的元素（`test_draft_direct_edits_follow_the_page_version`） | `restoreDraft` 认草稿里的 `version`：版本对不上就丢掉直改（意见/框选/图片/备注仍恢复，它们是内容，不随画面失效） |
+| 真缺口（实现没跟上） | 一次键盘输入让整条缩略图轨道被写两遍（`autoState → status → drawSaveStatus` 各写一次）—— 正是「缩略图一直在动」的来源 | `updateRail` 值没变就不写 `className` |
+| 顺带发现 | `render()` 落在**框选拖拽中途**（启动那次宿主同步、模型改页面都会触发）会清掉 `marking` → pointerup 落进「没框到东西」那一支，人拖出来的框凭空消失 | `render()` 在拖拽进行中不清标记状态，收尾交给 pointerup；新增 `test_render_during_a_region_drag_keeps_the_gesture`（先红后绿） |
+| 测试认的是已退役的界面 | `test_footer_has_one_primary_and_icon_reload` 找 `#reloadButton`，模板审阅面与本页共用同一份模板、其余 6 处都叫 `#reload` | 改测试选择器（`#reload`），不动 id |
+| 测试认的是已退役的界面 | `test_typing_feedback_does_not_rebuild_the_rail` 断言「打字后活动页类名变 `revise`」——旧页面的轨道类名；现在的轨道类名只反映页面保存状态 | 判据收紧成「一个轨道按钮都不该被写」（`writes==0`），并补两条真判据：状态确实更新 + 输入真的进草稿 |
+| 测试认的是已退役的界面 | `test_real_browser_review_through_the_surface` 跑的是旧「整套 PPT 审阅」面（`feedback.json` 的 pages/decision、标签「框选问题」「保存标注」「本页要求修改」） | 用户故事不变、机制按当前工作台契约重写：上传（含图片显示方式/对齐）→ 框选批注 → 逐页提交落任务并唤醒 → 陈旧提交被拒且输入不丢。旧流程其余行为由 `test_workbench_tools` / `test_workbench_ui` 同名行为覆盖 |
+
+**边界怎么变了**：没有新增能力，只有三处实现补齐 + 一处并发缺陷；测试侧把三条「认着已退役界面」的判据改到现状，并在维护历史里点名，避免下次误判成「有人在削弱覆盖」。
+
+**回归**：全量（`PPT_BROWSER_TESTS=1 PPT_WORKBENCH_BROWSER_TESTS=1`，`unittest discover`）**398 项 OK**（26 项按环境跳过）；本轮新增先红后绿断言 2 条（草稿版本、拖拽中途重画）。
+
 ## 2026-10-13 · 生产回执与诊断
 
 Store 保存回执补充实际变化及 no_change；图片测量由 image_diagnostics 唯一提供，frames 与校验共用，只发提醒。check 增加 summary、参数示例，并保留缓存原始检查结果；校验器版本变化后重新检查。内容入口标记确认的页面稿，copy_audit 只对表 SVG 文字，复用既有来源绑定；未确认或过期不报匹配。

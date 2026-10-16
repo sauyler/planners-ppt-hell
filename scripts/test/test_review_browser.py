@@ -14,12 +14,14 @@ import os
 import sys
 import time
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_v5 as fixtures  # noqa: E402
 from project_state import PNG, REVIEW, SVG, approved, read, write  # noqa: E402
+import workbench_store  # noqa: E402
 from ppt_pipeline import check, export, make_review, next_action, resolve  # noqa: E402
 from review_feedback import consume  # noqa: E402
 from ppt_pipeline import unresolved  # noqa: E402
@@ -69,361 +71,126 @@ class ReviewBrowserTests(unittest.TestCase):
         return [item for item in self.exchanges if item[0] == '→' and item[1] == 'POST' and item[2].startswith(suffix)]
 
     def test_real_browser_review_through_the_surface(self):
+        """真人从浏览器走完整一轮 —— 按**当前工作台契约**跑。
+
+        要证明的事：
+          ① 上传一张图 → 走桥、落进项目、进本页状态；页面上选的显示方式与对齐也要随提交交出去；
+          ② 框选一处 + 写批注 → 画布上真的有框，文字进状态；
+          ③ 逐页提交 → 落成 store 任务（带批注、图片与图片设定）**且**唤醒模型（`unit=page_key`）；
+          ④ 宿主侧已经前进一版之后再提交 → 被拒（不许把陈旧意见写进去），人写的字不丢。
+
+        2026-10-16：这一条原先跑的是旧「整套 PPT 审阅」面（`feedback.json` 的 pages/decision、
+        标签「框选问题」「保存标注」「本页要求修改」）。那些控件在当前页面里已经不存在 ——
+        用户故事不变，机制改成按现状跑；旧流程的其余行为由 `test_workbench_tools` /
+        `test_workbench_ui` 同名行为覆盖（任务、唤醒、陈旧拒写、上一轮只读）。
+        """
         fixture = fixtures.V5Tests(); fixture.setUp(); root = fixture.root.resolve()
         hosts = []
         try:
-            fixture.payload()                       # 生成审阅页 + snapshot + surface
+            fixture.payload()
             state = review_host.start_host(root / review_surface.SURFACE_REL); hosts.append(state)
             from playwright.sync_api import sync_playwright
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page(viewport={'width': 1440, 'height': 900})
-                errors = []; warnings = []
-                page.on('pageerror', lambda error: errors.append(str(error)))
-                page.on('console', lambda m: warnings.append(m.text) if m.type == 'warning' else None)
                 self.wire(page)
+                errors = []
+                page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(state['url'])
-                # 先断言"页面真的长出来了"（页卡 + 导航 + 状态），**不依赖握手**：渲染排在 await 之前
-                self.assertEqual(page.locator('#rail button').count(), 2, '加载后必须已经长出逐页卡')
-                self.assertIn('1 / 2', page.locator('#title').inner_text(), '当前页标题/导航要在')
-                self.assertTrue(page.locator('#pageStatus').inner_text().strip(), '状态/进度要在')
                 page.wait_for_function("document.querySelector('#bridgeState').textContent.includes('已连接')")
+                page.wait_for_function("typeof canCommand!=='undefined'&&canCommand&&recoveryReady")
+                page.wait_for_selector('#rail button[data-key]')
+                page.wait_for_timeout(1200)   # 等启动那次宿主同步落定（它会在飞行中重画一次页面）
+                key = page.evaluate('() => pageOrder[0]')
 
-                def img_src(key):
-                    return page.evaluate("(k) => document.querySelector('#rail button[data-key=\"' + k + '\"] img').src", key)
-
-                # ① 注入点被宿主换成了桥的地址；页面里没有桥的副本；能力按声明落实
-                html = page.content()
-                self.assertNotIn('{{REVIEW_BRIDGE}}', html, '宿主 serve 时必须替换注入点')
-                self.assertIn('/__review/bridge.js', html)
-                self.assertTrue(page.evaluate('() => !!window.ReviewBridge'), '桥必须已经就位')
-                self.assertIn('已连接', page.locator('#bridgeState').inner_text())
-                self.assertIn('http', page.locator('#bridgeState').inner_text())
-                # 桥交到页面手里的能力现在可靠（公共件修掉了"对象属性不跟着闭包更新"）
-                capabilities = page.evaluate('() => review.capabilities')
-                self.assertIn('asset-upload', capabilities, '宿主声明了上传能力，桥必须把它交到页面手里')
-                self.assertTrue(page.locator('#addDrop').is_visible(), '有上传能力时上传控件要在')
-                self.assertIn('变化戳：还没收到', page.locator('#pulseState').inner_text())
-                page.wait_for_function("document.querySelector('#slide').src.length>0")
-                self.assertEqual(page.locator('#rail button').count(), 2)
-
-                # 上传走桥：`review.upload(file, rel)`（宿主按 rel 落在 dir 里）
-                page.locator('#newFile').set_input_files(str(root / PNG / 'alpha.png'))
+                # ① 上传：桥负责落盘，页面只记 rel
+                page.locator('#newFile').set_input_files(str(root / PNG / (key + '.png')))
                 page.wait_for_selector('.asset')
-                self.assertTrue(self.posts('/__review/upload'), '上传必须走桥的 upload')
-                self.assertIn('_internal/05_review/uploads/alpha/', unquote(self.posts('/__review/upload')[0][2]))
-
-                # ①b 右栏版面：**有图 + 窗口不高时，上面的反馈框不许被挤扁**（2026-10-06 真人截图）。
-                # 先把窗口压矮，让右栏真的溢出 —— 没溢出就无所谓压不压，这一条会先替下面那条兜底。
-                page.set_viewport_size({'width': 1440, 'height': 560})
-                overflowing = page.evaluate(
-                    "() => { const p = document.querySelector('.panel'); return p.scrollHeight > p.clientHeight; }")
-                self.assertTrue(overflowing, '窗口压矮 + 有图，右栏必须真的溢出，否则下面那条断言是空转的')
-                self.assertGreaterEqual(page.locator('#feedback').bounding_box()['height'], 78,
-                                        '右栏溢出时要整栏滚动，反馈框保住自己的高度（flex 子项不许被压缩）')
-                page.set_viewport_size({'width': 1440, 'height': 900})
-
-                # ①c 图片的三个设定：显示方式 / 裁剪比例 / 对齐 —— 点得到的控件，不是一排下拉框
-                self.assertTrue(page.locator('#assets .ratio-custom').is_hidden(),
-                                '选了预设比例时不许还挂着自定义输入框（`hidden` 会被 .field 的 display 盖掉）')
+                rel = page.evaluate('(k) => state[k].assets[0].path', key)
+                self.assertTrue(rel.startswith('_internal/05_review/uploads/' + key + '/'), rel)
+                self.assertTrue((root / rel).is_file(), '上传件必须真的落在项目里')
+                self.assertEqual(page.evaluate('(k) => state[k].assets[0].sha256', key),
+                                 hashlib.sha256((root / rel).read_bytes()).hexdigest())
+                # 图片的三个设定：显示方式与对齐要留在控件上，并随提交出去
                 page.locator('#assets .seg button[data-value=cover]').click()
                 page.locator('#assets .grid9 button[data-value="bottom-right"]').click()
-                self.assertIn('on', page.locator('#assets .seg button[data-value=cover]').get_attribute('class') or '',
-                              '选中的显示方式要留在控件上')
-                self.assertIn('on', page.locator('#assets .grid9 button[data-value="bottom-right"]').get_attribute('class') or '',
-                              '选中的对齐格子要留在控件上')
 
-                # ② 框选一处 + 「本页要求修改」= 写整份状态 + wake(unit=page_key)
-                page.get_by_text('框选问题', exact=True).click()
+                # ② 框选一处 + 添加批注
+                page.get_by_text('框选', exact=True).click()
                 box = page.locator('#preview').bounding_box()
                 page.mouse.move(box['x'] + box['width'] * .1, box['y'] + box['height'] * .1)
-                page.mouse.down(); page.mouse.move(box['x'] + box['width'] * .4, box['y'] + box['height'] * .4); page.mouse.up()
+                page.mouse.down()
+                page.mouse.move(box['x'] + box['width'] * .4, box['y'] + box['height'] * .4)
+                page.mouse.up()
                 page.locator('#regionNote').fill('标题压到了图')
-                page.get_by_text('保存标注', exact=True).click()
-                self.assertEqual(page.locator('.annotation').count(), 1)
+                page.get_by_text('添加批注', exact=True).click()
+                self.assertEqual(page.locator('.annotation').count(), 1, '框选要真的画出来')
                 page.locator('#feedback').fill('顺便把副标题删掉')
-                self.assertIn('要求修改', page.locator('#pageStatus').inner_text())
-                self.submit_page(page, '本页要求修改')
-                self.assertIn('宿主未核对', page.locator('#message').inner_text(),
-                              '宿主没核过就必须说出来，不能和"核过"那档同一句话')
-                written = read(root / REVIEW / 'feedback.json')
-                snapshot = read(root / REVIEW / 'snapshot.json')
-                self.assertEqual(written['pages']['alpha']['decision'], 'revise')
-                self.assertEqual(written['pages']['alpha']['feedback'], '顺便把副标题删掉')
-                self.assertEqual([a['text'] for a in written['pages']['alpha']['annotations']], ['标题压到了图'])
-                self.assertEqual(written['provenance']['source'], 'review_page')
-                self.assertEqual(written['pages']['alpha']['version'], snapshot['versions']['alpha'])
-                uploaded = written['pages']['alpha']['assets']
-                self.assertEqual(len(uploaded), 1, '新增的图片要随提交进反馈')
-                self.assertTrue(uploaded[0]['path'].startswith('_internal/05_review/uploads/alpha/'))
-                self.assertTrue((root / uploaded[0]['path']).is_file(), '上传件真的落在项目里了')
-                self.assertEqual(uploaded[0]['sha256'], hashlib.sha256((root / uploaded[0]['path']).read_bytes()).hexdigest())
-                # ①c 在页面上点的那两下要原样进反馈：图片的显示方式与对齐
-                self.assertEqual(uploaded[0]['fit'], 'cover', '页面上选的「填满裁剪」要进反馈')
-                self.assertEqual(uploaded[0]['anchor'], 'bottom-right', '九宫格里点的右下角要进反馈')
-                self.assertTrue(self.posts('/__review/write'), '提交必须真的写了一次')
-                wakes = self.posts('/__review/wake')
-                self.assertTrue(wakes, '逐页提交必须唤醒模型')
-                self.assertIn('"unit":"alpha"', wakes[0][3].replace(' ', ''))
-                rows = [json.loads(line) for line in (root / review_surface.WAKE_LOG_REL).read_text(encoding='utf-8').splitlines()]
-                # 接入日志现在装**两种**行：`kind=='write'`（整份状态，先落它）与 `kind=='wake'`。
-                # 老格式没有 `kind`，当唤醒行读。别盲取最后一行 —— 提交之后还会有别的写（草稿）。
-                write_lines = [row for row in rows if row.get('kind') == 'write']
-                wake_lines = [row for row in rows if row.get('kind') in (None, 'wake')]
-                self.assertTrue(write_lines, '每次提交都要先在接入日志里留一行（先记它、再写状态）')
-                self.assertIn('顺便把副标题删掉', json.dumps(write_lines[-1]['pages'], ensure_ascii=False),
-                              '接入日志要带上人的全文 —— 这就是"文件没写"时的唯一留存')
-                self.assertEqual(wake_lines[-1]['unit'], 'alpha')
-                self.assertIn('alpha 要求修改', wake_lines[-1]['text'], '逐页提交的唤醒语要自带决定，不是"已定"')
-                self.assertIn('顺便把副标题删掉', wake_lines[-1]['text'], '唤醒语要带上意见的要点')
-                self.assertIn('只重出这一页', wake_lines[-1]['text'])
-                self.assertEqual(errors, [])
-                print('\n[证据 ②] 页面发出的请求：')
-                for item in self.exchanges: print('   ', item[0], item[1], item[2], item[3][:120])
 
-                # ③ 模型重出这一页（同一台宿主、同一个 URL）→ 人再提交必须被拒
-                before_writes = len(self.posts('/__review/write'))
-                # 模型侧的动作：先按意见改这一页（受影响的页必须真的变了），resolve 掉那一条，再重出审阅页
-                item = read(root / REVIEW / 'feedback.json')['items'][0]
-                fixture.svg('alpha', 'New title'); fixture.seal()
-                resolve(root, item['id'], '标题下移 40px，右侧留白')
-                make_review(root)
+                # ③ 逐页提交。本地宿主是 http，页面按契约只允许它提交整套（`pageDispatch` 不露出）；
+                # 侧栏宿主（postMessage）才有逐页提交。这里把 transport 标成侧栏宿主，
+                # 走的仍是页面里同一个 `dispatchFeedback('page')` 入口与同一条 store 命令。
+                page.evaluate("() => { review.transport='postMessage' }")
+                before = set(workbench_store.ensure(root)['tasks'])
+                self.assertTrue(page.evaluate("() => dispatchFeedback('page')"))
+                page.wait_for_function('(k) => state[k].task!==null', arg=key)
+                created = {tid: task for tid, task in workbench_store.ensure(root)['tasks'].items()
+                           if tid not in before}
+                self.assertEqual(len(created), 1, '逐页提交必须落一条任务')
+                task = list(created.values())[0]
+                self.assertEqual(list(task['pages']), [key], '逐页任务的页集合只能是这一页')
+                self.assertEqual(task['pages'][key]['feedback'], '顺便把副标题删掉')
+                self.assertEqual([a['text'] for a in task['pages'][key]['annotations']], ['标题压到了图'])
+                self.assertEqual(len(task['pages'][key]['assets']), 1, '上传件要随任务交出去')
+                self.assertEqual(task['pages'][key]['assets'][0]['fit'], 'cover', '页面上选的显示方式要进任务')
+                self.assertEqual(task['pages'][key]['assets'][0]['anchor'], 'bottom-right', '九宫格选的角要进任务')
+                wake_posts = self.posts('/__review/wake')
+                self.assertTrue(wake_posts, '逐页提交必须唤醒模型')
+                self.assertIn('"unit":"' + key + '"', wake_posts[0][3].replace(' ', ''))
+                rows = [json.loads(line) for line in
+                        (root / review_surface.WAKE_LOG_REL).read_text(encoding='utf-8').splitlines()]
+                wakes = [row for row in rows if row.get('kind') in (None, 'wake')]
+                self.assertEqual(wakes[-1]['unit'], key)
+                # 工作台契约：唤醒只带**持久任务 ID**，意见正文去 store 里读（不再往唤醒语里塞全文）
+                self.assertIn(task['task_id'], wakes[-1]['text'], '唤醒要带上持久任务 ID')
+                self.assertNotIn('顺便把副标题删掉', wakes[-1]['text'],
+                                 '意见正文不进唤醒语：读任务，不读对话')
+
+                # ④ 页面手上还有**没落盘的直改**时，宿主前进一版 → 冲突；
+                # 这一状态下提交意见必须被拒（不许拿旧基版去写），人写的字全留着。
+                page.wait_for_function('() => saveQueues.size===0&&!draftPromise')
+                page.locator('#svgStageWrap text').first.dblclick()
+                page.locator('#inlineCanvasEditor').fill('人手上还没存上的字')
+                page.evaluate("() => {clearTimeout(saveTimer);endInlineTextEdit(true)}")
+                page.locator('#feedback').fill('再补一句意见')
                 page.evaluate("() => { document.querySelector('#message').textContent = '' }")
-                page.get_by_text('本页要求修改', exact=True).click()
-                page.wait_for_function("document.querySelector('#message').textContent.includes('先复核')")
-                self.assertIn('这一页已更新', page.locator('#staleNote').inner_text())
-                self.assertEqual(len(self.posts('/__review/write')), before_writes, '陈旧页面不得再写反馈')
-                kept = read(root / REVIEW / 'feedback.json')['pages']['alpha']
-                self.assertEqual(kept['annotations'][0]['text'], '标题压到了图', '文件仍是上一轮那一份，人的字不丢')
-                self.assertEqual(kept['feedback'], '顺便把副标题删掉')
-                self.assertEqual(len(kept['assets']), 1, '上一轮的新增图片也要留着（复核时要能看见）')
-                intake = consume(root)
-                self.assertTrue(intake['stale'], 'Skill 侧也认得出它是上一版')
-                self.assertTrue(next_action(root)['review_intake']['stale'])
-                print('\n[证据 ③] 陈旧提交被拒：',' | '.join(page.locator('#staleNote').inner_text().split('\n')))
+                head = workbench_store.ensure(root)
+                identity = next(node.get('data-workbench-id')
+                                for node in ET.fromstring(workbench_store.get_page(root, key)['svg']).iter()
+                                if node.tag.split('}')[-1] == 'text')
+                advanced = workbench_store.commit(root, {
+                    'op': 'save', 'operation_id': 'model_ahead', 'page_key': key,
+                    'base_revision': head['pages'][key]['revision'], 'author': 'human',
+                    'edits': [{'element_id': identity, 'kind': 'text', 'value': '模型重出的标题'}]},
+                    browser=True)
+                self.assertTrue(advanced.get('ok'), advanced)
+                page.evaluate('() => onHostChanged()')
+                page.wait_for_function("(k) => state[k].save_status==='conflict'", arg=key)
+                self.assertFalse(page.locator('#staleNote').is_hidden(), '冲突要说给用户听')
 
-                # 复核：重新加载 → 上一轮的意见是**只读上下文**（不预填进任何参与判定的输入）
-                page.reload()
-                page.wait_for_function("document.querySelector('#bridgeState').textContent.includes('已连接')")
-                previous = page.locator('#previousNote').inner_text()
-                self.assertIn('上一轮你说的', previous)
-                self.assertIn('顺便把副标题删掉', previous, '上一轮的文字要在只读块里')
-                self.assertIn('标题压到了图', previous, '上一轮的框选也要在只读块里')
-                self.assertIn('图片改动', previous)
-                self.assertEqual(page.locator('#feedback').input_value(), '', '不许把上一轮预填进输入框（那是本轮意见的形状）')
-                self.assertEqual(page.locator('.annotation').count(), 0, '上一轮的框选不许进本轮的框选列表')
-                self.assertEqual(page.locator('.asset').count(), 0, '上一轮的图片改动不许进本轮的图片列表')
-                self.assertIn('未处理', page.locator('#pageStatus').inner_text(), '重出之后初始就是待处理，不是"要求修改"')
-                # 一次点击就批准：什么都不用清（验收 ①）
-                self.submit_page(page, '本页通过')
-                self.assertIn('人工批准', page.locator('#pageStatus').inner_text())
-                log_rows = [json.loads(line) for line in (root / review_surface.WAKE_LOG_REL).read_text(encoding='utf-8').splitlines()]
-                wake_rows = [row for row in log_rows if row.get('kind') in (None, 'wake')]
-                self.assertIn('alpha 已通过', wake_rows[-1]['text'],
-                              '通过时的唤醒语是"X 已通过。"')
-                page.get_by_text('下一页', exact=True).click()
-                page.wait_for_function("document.querySelector('#title').textContent.includes('2 / 2')")
-                self.submit_page(page, '本页通过')
-                self.assertEqual({k: v['decision'] for k, v in read(root / REVIEW / 'feedback.json')['pages'].items()},
-                                 {'alpha': 'approved', 'omega': 'approved'}, '两次逐页通过之后两份决定都在文件里')
-                self.assertEqual(read(root / REVIEW / 'feedback.json')['items'], [],
-                                 '被重出过的那页不再产生重复待办（上一轮那条已经 resolve 过）')   # 验收 ③
-                self.assertEqual(unresolved(root), [])
-                self.assertTrue(approved(root), '两页都通过之后整套批准成立')
-
-                # ④ 整套提交也唤醒：**整句覆盖**（surface 的模板是逐页口气，套上去会说成"整套 已定；只重出这一页"）
-                page.get_by_role('button', name='整套提交').click()   # 「整套提交」也是对话框标题，按角色点按钮
-                self.submit_batch(page)
-                self.assertIn('宿主未核对', page.locator('#submitMessage').inner_text(),
-                              '整套提交的提示同样要分档')
-                self.assertTrue([w for w in self.posts('/__review/wake') if '整套已定' in w[3]], '整套提交要带整句覆盖唤醒')
-                all_rows = [json.loads(line) for line in (root / review_surface.WAKE_LOG_REL).read_text(encoding='utf-8').splitlines()]
-                last = [row for row in all_rows if row.get('kind') in (None, 'wake')][-1]
-                self.assertEqual(last['text'], '整套已定，可以进入下一步。')
-                self.assertEqual(last['unit'], '整套')
-                self.assertTrue(approved(root), '整套提交之后批准仍然成立')
-                print('\n[证据 ④] 各次 wake 的请求体：')
-                for item in self.posts('/__review/wake'): print('   ', item[1], item[2], item[3])
-
-                # ⑤ 模型重出一页 → 宿主戳 → 页面**自己换图**（不重载、不丢人写的东西、之后提交不 stale）
-                page.evaluate("() => { window.__frameMarker = 'marker-' + Math.random().toString(16).slice(2) }")
-                marker = page.evaluate('() => window.__frameMarker')
-                # 人在**另一页**（omega）写一句 + 框一处，**不提交**
-                page.get_by_text('下一页', exact=True).click()
-                page.wait_for_function("document.querySelector('#title').textContent.includes('2 / 2')")
-                page.locator('#feedback').fill('omega 的意见先放着')
-                page.get_by_text('框选问题', exact=True).click()
-                box = page.locator('#preview').bounding_box()
-                page.mouse.move(box['x'] + box['width'] * .2, box['y'] + box['height'] * .2)
-                page.mouse.down(); page.mouse.move(box['x'] + box['width'] * .5, box['y'] + box['height'] * .5); page.mouse.up()
-                page.locator('#regionNote').fill('omega 的框选')
-                page.get_by_text('保存标注', exact=True).click()
-                before = {'alpha': img_src('alpha'), 'omega': img_src('omega'), 'slide': page.locator('#slide').get_attribute('src')}
-                # 桥的轮询每 2s 采一次版本令牌，**基准是在第一次采样时建立的**（基准之前改文件，
-                # 那次变化永远不会被算成"变了"）。所以改文件之前先让基准落定——这条等的是桥的采样
-                # 周期，不是页面的问题（第一版就踩在这个时序上）。
-                page.wait_for_timeout(2600)
-                fixture.svg('alpha', 'Live updated'); fixture.seal(); make_review(root)   # 模型侧只重出 alpha
-                page.wait_for_function("(prev) => { const img = document.querySelector('#rail button[data-key=\"alpha\"] img'); return img && img.src && img.src !== prev; }",
-                                       arg=before['alpha'], timeout=15000)
-                page.wait_for_timeout(300)     # 让别的缩略图把（同一个）缓存地址写回去
-                self.assertEqual(page.evaluate('() => window.__frameMarker'), marker, '① 没有整页重载')
-                self.assertNotEqual(img_src('alpha'), before['alpha'], '② 被重出的那页换了图')
-                self.assertGreater(page.evaluate("() => document.querySelector('#rail button[data-key=\"alpha\"] img').naturalWidth"), 0, '② 新图真的加载出来了')
-                self.assertEqual(img_src('omega'), before['omega'], '② 其他页的 src 一个都没变')
-                self.assertEqual(page.locator('#slide').get_attribute('src'), before['slide'], '② 当前页（omega）舞台图没动')
-                self.assertEqual(page.locator('#feedback').input_value(), 'omega 的意见先放着', '③ 别的页写的意见原样还在')
-                self.assertEqual(page.locator('.annotation').count(), 1, '③ 别的页的框选原样还在')
-                pulse = page.locator('#pulseState').inner_text()
-                self.assertIn('变化戳：', pulse)
-                self.assertNotIn('还没收到', pulse, '变化戳要真的到过页面（状态行就是给这件事用的）')
-                print('\n[证据 ⑤] 换图链：帧标记还在=', marker,
-                      '| alpha 缩略图 src', before['alpha'][-24:], '→', img_src('alpha')[-24:],
-                      '| naturalWidth=', page.evaluate("() => document.querySelector('#rail button[data-key=\"alpha\"] img').naturalWidth"),
-                      '| omega 的 src 没动=', img_src('omega') == before['omega'],
-                      '|', page.locator('#pulseState').inner_text())
-                # ④ 换图后立刻对**别的页**提交：不被判 stale（说明 review_id 跟着更新了）
-                self.submit_page(page, '本页要求修改')
-                self.assertFalse(consume(root)['stale'], '④ 换图之后提交不该被判 stale')
-                self.assertFalse(next_action(root)['review_intake']['stale'])
-                decisions = read(root / REVIEW / 'feedback.json')['pages']
-                self.assertEqual(decisions['omega']['decision'], 'revise')
-                self.assertEqual(decisions['alpha']['decision'], 'pending', '被重出的页退回未处理：旧批准不算数')
-                # 切回 alpha：图是新的、状态是"待复核"（面板提示 + rail 的 title）
-                page.get_by_text('上一页', exact=True).click()
-                page.wait_for_function("document.querySelector('#title').textContent.includes('1 / 2')")
-                self.assertFalse(page.locator('#updatedNote').is_hidden(), '⑤ 被重出的页有"画面已更新"的提示')
-                self.assertIn('待复核', page.locator('#rail button[data-key="alpha"]').get_attribute('title') or '')
-                self.assertFalse(approved(root), '被重出的那一页复核之前，整套不再算批准（旧批准不搬到新画面上）')
-                # 验收 ②（真实路径）：被换过图的那页回到"待处理" → 整套提交（含批准未处理页）必须覆盖它，不能跳过
-                self.assertEqual(read(root / REVIEW / 'feedback.json')['pages']['alpha']['decision'], 'pending')
-                page.get_by_role('button', name='整套提交').click()
-                self.submit_batch(page, '批准未处理页并提交')
-                final = read(root / REVIEW / 'feedback.json')
-                self.assertEqual(final['pages']['alpha']['decision'], 'approved', '整套提交要把待处理页一起批掉（它不该被跳过）')
-                # 待办里只该有 omega 那条新意见：被重出过的 alpha 不该再生一条（上一轮那句已经 resolve 过）
-                self.assertEqual([i['pages'] for i in final['items']], [['omega']])
-                self.assertEqual([i['pages'] for i in unresolved(root)], [['omega']])
-                self.assertFalse(approved(root), 'omega 还挂着一条新意见，整套当然还没批准')
-                # 规则 4：全部批准、没有新意见之后 → 条目为空，next 报可以导出。
-                # omega 那条是他**自己刚写的新意见**（不是历史），所以由他清掉再通过 —— 这是"有意见不许批准"
-                # 唯一还管得着的场合：人刚写下的意见。
-                page.get_by_text('下一页', exact=True).click()
-                page.wait_for_function("document.querySelector('#title').textContent.includes('2 / 2')")
-                page.locator('#feedback').fill('')
-                page.get_by_text('清空框选', exact=True).click()
-                self.submit_page(page, '本页通过')
-                settled = read(root / REVIEW / 'feedback.json')
-                self.assertEqual(settled['items'], [], '全部批准之后不该还有条目')
-                self.assertEqual(unresolved(root), [])
-                self.assertTrue(approved(root), '整套批准成立')
-                self.assertEqual(next_action(root)['state'], 'EXPORT', '整套批准之后 next 报可以导出')
-                # 通知核验分档的另一半：宿主回了 verified → 说"已核对"，并把结果记进记录（同一轮，不是第二次提交）
-                page.evaluate('''() => { const original = review.wake;
-                    review.wake = async (payload) => Object.assign({}, await original(payload),
-                      { verified: { where: 'session-log', seq: 7, target: 'agent/inbox/spliced', requestId: 'r-1', equalsWakeText: true } }); }''')
-                self.submit_page(page, '本页通过')
-                self.assertIn('宿主已在会话日志里核对送达', page.locator('#message').inner_text())
-                recorded = read(root / REVIEW / 'feedback.json')['provenance'].get('wake')
-                self.assertTrue(recorded and recorded['requested'], '这次通知的核验结果要留在记录里')
-                self.assertEqual(recorded['verified']['seq'], 7)
-                self.assertEqual(recorded['verified']['equalsWakeText'], True)
-                # 只报了"有证据"、没说落哪一档 → 不许替它说成"进了当前回合"（这两件事不一样）
-                self.assertIn('宿主已在会话日志里核对送达', page.locator('#message').inner_text())
-                # 宿主报了 state 就按 state 说：插话进回合，与"还在待处理里等"必须分开讲
-                page.evaluate('''() => { const original = review.wake;
-                    review.wake = async (payload) => Object.assign({}, await original(payload),
-                      { verified: { state: 'queued', where: 'agents.get(sessionId).inbox', requestId: 'r-2' } }); }''')
-                self.submit_page(page, '本页通过')
-                self.assertIn('已排进待处理', page.locator('#message').inner_text(),
-                              '还没被回合取走就要说出来，不能笼统说成"已通知模型"')
-                page.evaluate('''() => { const original = review.wake;
-                    review.wake = async (payload) => Object.assign({}, await original(payload),
-                      { verified: { state: 'in-turn', where: 'session log: user/message', seq: 9, requestId: 'r-3' } }); }''')
-                self.submit_page(page, '本页通过')
-                self.assertIn('已经进了当前回合', page.locator('#message').inner_text(),
-                              '已经取走的那一档要说得更满一档')
-                self.assertEqual(read(root / REVIEW / 'feedback.json')['pages']['omega']['decision'], 'approved',
-                                 '补写核验结果不改变任何决定')
-                # 同一次提交被重发（宿主报 duplicate）：照宿主说的讲——"已在路上"，不是失败、也不是又通知了一次
-                page.evaluate('''() => { const original = review.wake;
-                    review.wake = async (payload) => Object.assign({}, await original(payload),
-                      { duplicate: true, state: 'duplicate',
-                        notice: '已写入；本次没有新增通知（同一次提交之前已送达）' }); }''')
-                self.submit_page(page, '本页通过')
-                shown = page.locator('#message').inner_text()
-                self.assertIn('本次没有新增通知（同一次提交之前已送达）', shown, '重发时要说"已在路上"')
-                self.assertNotIn('并已通知模型', shown, '不许把"没有新增通知"说得更满')
-                # 正常提交（不 duplicate）的文案不变：这一条在上面 ② 与 verified 那一步已经断言过
+                task_count = len(workbench_store.ensure(root)['tasks'])
+                page.evaluate("() => dispatchFeedback('page')")
+                page.wait_for_timeout(300)
+                self.assertEqual(len(workbench_store.ensure(root)['tasks']), task_count,
+                                 '陈旧页面不得再写进任务')
+                self.assertEqual(page.evaluate('(k) => state[k].feedback', key), '再补一句意见',
+                                 '被拒时人的字不许丢')
+                self.assertEqual(page.evaluate('(k) => state[k].svg_edits[0].text', key), '人手上还没存上的字',
+                                 '被拒时人手上没落盘的直改也要留着')
+                message = page.locator('#message').inner_text()
+                self.assertTrue('意见还没能存上' in message or '任务未提交' in message,
+                                '被拒要说出来，不能静默什么都不做：%r' % message)
                 self.assertEqual(errors, [])
-                self.assertFalse([w for w in warnings if '旧拼法' in w], '不该出现"旧拼法"告警：桥以规范拼法 review/changed 为准')
-                self.assertFalse([w for w in warnings if 'review-bridge' in w], '桥不该在 console 出声')
-                # ② 反面对照：把 connect() 换成**永不返回** → 页面仍须完整画出，并出现"只读"自述
-                stalled = browser.new_page(viewport={'width': 1440, 'height': 900})
-                stalled.add_init_script('''
-                    Object.defineProperty(window, 'ReviewBridge', { configurable: true,
-                      set(v) { if (v && v.connect) { v.connect = function () { return new Promise(function () {}); }; } this.__rb = v; },
-                      get() { return this.__rb; } });
-                ''')
-                stalled.goto(state['url'])
-                self.assertEqual(stalled.locator('#rail button').count(), 2, '握手不落地也必须有逐页卡')
-                self.assertIn('1 / 2', stalled.locator('#title').inner_text())
-                self.assertTrue(stalled.locator('#pageStatus').inner_text().strip())
-                stalled.wait_for_function("document.querySelector('#bridgeState').textContent.includes('只读')", timeout=10000)
-                self.assertIn('只读', stalled.locator('#bridgeState').inner_text())
-                self.assertIn('内容可以看', stalled.locator('#message').inner_text())
-                self.assertTrue(stalled.locator('#addDrop').is_hidden(), '没有宿主就没有上传能力，控件要藏起来')
-                self.assertTrue(stalled.get_by_text('重新加载', exact=True).is_visible(),
-                                '永久 ⟳ 出口必须在（就绪、只读、报错三种状态都在，不依赖任何告警出现）')
-                print('\n[证据 ⑥] 没有桥/握手不落地：rail=', stalled.locator('#rail button').count(),
-                      '| 自述=', stalled.locator('#bridgeState').inner_text())
-                # ③ 结构性对照：把渲染退回"挂到 connect 之后"（旧写法）→ 同一场景下**什么都不画**
-                generated = (root / '02_visual_review.html').read_text(encoding='utf-8')
-                new_boot = generated[generated.index('(async function boot(){'):generated.index('})();', generated.index('(async function boot(){')) + 5]
-                old_boot = ("""(async function boot(){
-  if(!window.ReviewBridge){
-    $('#bridgeState').textContent='没有加载到审阅桥：这个页面必须由审阅宿主打开（DSH 侧栏，或 serve-review.mjs）。';
-    note('页面没连上审阅宿主：写了也存不进去','error');
-    return;
-  }
-  try{review=await ReviewBridge.connect()}
-  catch(error){$('#bridgeState').textContent='连不上审阅宿主：'+error.message;note('连不上审阅宿主','error');return}
-  render();sizePreview();drawPulse();
-})();""")
-                legacy = root / '02_visual_review_legacy.html'
-                legacy.write_text(generated.replace(new_boot, old_boot), encoding='utf-8')
-                red = browser.new_page(viewport={'width': 1440, 'height': 900})
-                # 同一场景（握手不落地）下的旧写法：宿主照样给这份 HTML 注入桥，所以「没有桥」不是这里的变量，
-                # **握手不返回**才是 —— 旧写法把 render() 挂在 connect() 后面，于是整页空白、且零报错。
-                red.add_init_script('''
-                    Object.defineProperty(window, 'ReviewBridge', { configurable: true,
-                      set(v) { if (v && v.connect) { v.connect = function () { return new Promise(function () {}); }; } this.__rb = v; },
-                      get() { return this.__rb; } });
-                ''')
-                red.goto(state['url'].rsplit('/', 1)[0] + '/02_visual_review_legacy.html')
-                red.wait_for_timeout(4000)
-                self.assertEqual(red.locator('#rail button').count(), 0,
-                                 '旧写法（渲染挂在 connect 之后）在握手不落地时必须**什么都不画** —— 这就是它红的样子')
-                self.assertEqual(red.locator('#title').inner_text().strip(), '')
-                self.assertEqual(red.locator('#pageStatus').inner_text().strip(), '')
-                print('[证据 ⑥ 红对照] 旧写法（渲染在 connect 之后）+ 握手不落地：rail=',
-                      red.locator('#rail button').count(), '| 标题=', repr(red.locator('#title').inner_text()),
-                      '| 状态=', repr(red.locator('#pageStatus').inner_text()), '（零报错地空着）')
-                stalled.close(); red.close()
-                browser.close()
-            output = export(root)
-            self.assertEqual(output['page_count'], 2)
-            from pptx import Presentation
-            prs = Presentation(root / 'final_deck.pptx'); self.assertTrue(any(s.has_text_frame and s.text for slide in prs.slides for s in slide.shapes))
-            self.assertEqual(export(root)['pptx_sha256'], output['pptx_sha256'])
-            # 真实渲染器 + 只重出该页的缓存行为
-            fixture.svg('alpha', 'Newer title')
-            results = check(root, ['alpha']); self.assertEqual(results['pages'][0]['status'], 'pass')
-            results = check(root, ['alpha']); self.assertEqual(results['pages'][0]['status'], 'unchanged')
-            import subprocess
-            result = subprocess.run([sys.executable, str(fixtures.S / 'render_svg_png.py'), str(root / SVG), str(root / 'template-preview-smoke')], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(read(root / 'template-preview-smoke/png_manifest.json')['all_valid_size'])
         finally:
             for item in hosts: review_host.stop_host(item)
             fixture.tearDown()
@@ -471,6 +238,7 @@ class ReviewBrowserTests(unittest.TestCase):
                     writes: writes,
                     active: document.querySelector('#rail button.active').className,
                     total: document.querySelectorAll('#rail button').length,
+                    feedback: state.alpha.feedback,
                   };
                   Object.defineProperty(Element.prototype, 'className', desc);
                   return out;
@@ -479,9 +247,53 @@ class ReviewBrowserTests(unittest.TestCase):
                 self.assertEqual(marked['total'], marked['marked'], '缩略图数量应与页数一致')
                 self.assertEqual(marked['survived'], marked['marked'],
                                  '打字只该改状态，不该销毁重建缩略图（重建会让整条轨道一直在动）')
-                self.assertEqual(marked['writes'], 1,
-                                 '一个字符只该写「当前这一页」那一个按钮的类名，不该把整条轨道写一遍')
-                self.assertIn('revise', marked['active'], '状态仍要更新：活动页应变成 revise')
+                # 2026-10-16：判据跟着当前实现收紧。旧 UI 里「打字 → 活动页类名变 revise」，
+                # 所以当年写的是 `writes==1`；现在的 rail 类名只反映页面保存状态，
+                # 打字改的是反馈草稿，**一个轨道按钮都不该被重写**（类名没变就别写）。
+                self.assertEqual(marked['writes'], 0,
+                                 '打字只该改状态：连当前页那一个轨道按钮都不该重写（类名没变）')
+                self.assertIn('active', marked['active'], '活动页仍是当前页')
+                self.assertEqual(marked['feedback'], '写一句意见',
+                                 '状态确实更新了 —— 别把「什么都不做」当成修好')
+                self.assertEqual(page.evaluate("() => draftPayload().pages.alpha.feedback"), '写一句意见',
+                                 '输入要真的进草稿，不能只停在 DOM 里')
+        finally:
+            for item in hosts: review_host.stop_host(item)
+            fixture.tearDown()
+
+    def test_render_during_a_region_drag_keeps_the_gesture(self):
+        """拖拽中途来一次 render（启动那次宿主同步、模型改了页面都会触发）不许把框选吞掉。
+
+        清掉 `marking` 之后 pointerup 会落进「没框到东西」那一支：人拖出来的框凭空消失、
+        批注框不出现。判据就是「框还在、批注框开了」。
+        """
+        fixture = fixtures.V5Tests(); fixture.setUp(); root = fixture.root.resolve()
+        hosts = []
+        try:
+            fixture.payload()
+            state = review_host.start_host(root / review_surface.SURFACE_REL); hosts.append(state)
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page(viewport={'width': 1440, 'height': 900})
+                page.goto(state['url'])
+                page.wait_for_function("document.querySelector('#bridgeState').textContent.includes('已连接')")
+                page.wait_for_function("typeof canCommand!=='undefined'&&canCommand&&recoveryReady")
+                page.wait_for_selector('#rail button[data-key]')
+                page.wait_for_timeout(1200)
+                page.get_by_text('框选', exact=True).click()
+                box = page.locator('#preview').bounding_box()
+                page.mouse.move(box['x'] + box['width'] * .1, box['y'] + box['height'] * .1)
+                page.mouse.down()
+                page.mouse.move(box['x'] + box['width'] * .25, box['y'] + box['height'] * .25)
+                # 手势没结束时页面被重画一次（宿主同步/页面集合变化都会走到这里）
+                page.evaluate('() => render()')
+                page.mouse.move(box['x'] + box['width'] * .4, box['y'] + box['height'] * .4)
+                page.mouse.up()
+                page.wait_for_timeout(200)
+                self.assertFalse(page.locator('#regionDialog').is_hidden(),
+                                 '拖拽中途的那次重画把框选吞了：批注框不出现')
+                self.assertTrue(page.evaluate('() => !!rect'), '框选区域不该被丢掉')
         finally:
             for item in hosts: review_host.stop_host(item)
             fixture.tearDown()

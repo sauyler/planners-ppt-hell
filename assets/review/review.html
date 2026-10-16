@@ -888,7 +888,10 @@ function updateRail(keys){
   for(const key of targets){
     const at=railButtons.get(key);if(!at)continue;
     const p=data.pages.find(p=>p.key===key),s=state[key];
-    at.b.className=railClass(at.i,p);
+    /* 同一条状态路径会被走两次（autoState → status → drawSaveStatus）。值没变就不写：
+     * 一次鼠标/键盘输入让整条轨道反复重画，正是「缩略图一直在动」的来源。 */
+    const nextClass=railClass(at.i,p);
+    if(at.b.className!==nextClass)at.b.className=nextClass;
     at.b.title=updatedPages.has(p.key)?'画面已更新，待复核':'拖动调整页面顺序；Alt+↑/↓ 也可移动';
     at.tag.textContent=railTagText(s);
   }
@@ -1434,12 +1437,18 @@ async function render(){
   endInlineTextEdit(true);
   if(!$('#regionDialog').hidden){if($('#regionNote').value.trim())saveRegion();else cancelRegion()}
   const seq=++slideSeq;
-  marking=false;previous=false;historicalMarkup=null;historyPreviewSeq++;
-  $('#preview').classList.remove('marking');
-  $('#selection').hidden=true;
-  $('#modeSelect').classList.add('active');
-  $('#mark').classList.remove('active');
-  $('#modeSelect').setAttribute('aria-pressed','true');$('#mark').setAttribute('aria-pressed','false');
+  /* 拖拽**中途**来的 render（启动那次宿主同步、模型改了页面都会触发）不许把手上这一笔吞掉：
+   * 清了 `marking`，pointerup 就落进「没框到东西」那一支，人拖出来的框凭空消失。
+   * 手势收尾交给 pointerup 自己（它会 setMode）。 */
+  const regionGesture=marking&&start;
+  if(!regionGesture){
+    marking=false;previous=false;historicalMarkup=null;historyPreviewSeq++;
+    $('#preview').classList.remove('marking');
+    $('#selection').hidden=true;
+    $('#modeSelect').classList.add('active');
+    $('#mark').classList.remove('active');
+    $('#modeSelect').setAttribute('aria-pressed','true');$('#mark').setAttribute('aria-pressed','false');
+  }
   const p=page(),s=state[p.key];
   syncHash();   // 切页/换页都记下位置，重新加载后还停在这一页
   $('#title').textContent=(index+1)+' / '+data.pages.length+' · '+p.title;
@@ -1860,7 +1869,7 @@ $('#newFile').onchange=e=>{if(e.target.files[0])upload(e.target.files[0],'new_'+
 /* ---- 提交 ---- */
 function drawStale(){
   const box=$('#staleNote');box.hidden=!stale;
-  if(stale)box.textContent='新版本与未保存内容冲突：'+staleKeys.join('、')+'。输入已保留为恢复草稿，未覆盖当前版本。';
+  if(stale)box.textContent='新版本与未保存内容冲突：'+staleKeys.join('、')+'。你的输入没丢，点「重试保存」把它接到最新版本上（新版本里别的改动不会被覆盖）。';
 }
 async function readSnapshot(){
   if(!review)return null;
@@ -2101,7 +2110,7 @@ async function savePage(p){
   if(saveQueues.has(p.key))return saveQueues.get(p.key);
   if(!pageDirty(p))return true;
   if(!canCommand){s.save_status='error';commandUnsupported('宿主没有持久保存能力');return false}
-  if(s.save_status==='conflict'){note(p.key+' 版本冲突，输入和恢复草稿仍保留','error');return false}
+  if(s.save_status==='conflict'){note(p.key+' 在宿主侧已经前进了一版：输入还在这页的恢复草稿里，点「重试保存」接到最新版本上','error');return false}
   const work=(async()=>{
     try{
       while(pageDirty(p)){
@@ -2140,7 +2149,9 @@ async function savePage(p){
       s.current_revision=error.receipt?.current_revision;
       s.recovery=error.receipt?.recovery;
       retainRecoveryDraft();void saveDraft();drawSaveStatus();
-      note(p.key+' 未保存：'+error.message+'；输入已保留','error');return false;
+      note(p.key+' 未保存：'+error.message+(s.save_status==='conflict'
+        ?'；这一页在宿主侧已经前进了一版，点「重试保存」把输入接到最新版本上'
+        :'；输入已保留'),'error');return false;
     }
   })();
   saveQueues.set(p.key,work);
@@ -2219,7 +2230,60 @@ async function flushWorkbench(pages=data.pages){
   drawSaveStatus();
   return saved;
 }
-async function retryAutosave(){if(await flushWorkbench())note('已保存','ok')}
+/* 还没落盘的直改：与「已保存集合」逐条比，缺的或不一样的就是要重放的。 */
+function unsavedEdits(s){
+  const acknowledged=s.saved_edits||[];
+  return (s.svg_edits||[]).filter(rec=>{
+    const before=acknowledged.find(x=>x.review_id===rec.review_id);
+    return !before||JSON.stringify(before)!==JSON.stringify(rec);
+  });
+}
+/* 版本冲突的唯一出路：**接续**，不是放弃也不是盲覆盖。
+ * 宿主当前版本成为新基版；已经存过的直改本来就在那条线上（新版本是它的后代），
+ * 只有「还没落盘的那几处」需要在新基版上重放。重放不上的不丢：
+ * 留在恢复草稿里并点名说出来，由人决定怎么处理。 */
+async function rebasePageOnHost(p){
+  const s=state[p.key];
+  const record=await workbenchCommand({op:'get',page_key:p.key});
+  if(!record||!record.revision)throw new Error('没有读到宿主当前版本');
+  const unsaved=unsavedEdits(s);
+  const keepNotes=s.notes!==s.saved_notes?s.notes:null;   // 只有人真改过备注才带着走
+  /* 接新基版要先把这一页变成「不脏」：mergeStoredPage 见脏就不接。
+   * 备注要与 saved_notes 一起归零 —— 只清 notes 会让 notes!==saved_notes 又把这一页判成脏。 */
+  s.svg_edits=[];s.saved_edits=[];s.notes=s.saved_notes;
+  s.pending_save=null;s.pending_restore=null;s.pending_history=null;s.allow_restore=false;
+  if(!await mergeStoredPage(p,record))throw new Error('宿主当前版本没有接上');
+  /* 元素已在新版本里删掉、而人要的正是「它没了」：意图已经成立，不再重放。 */
+  s.svg_edits=unsaved.filter(rec=>!(rec.deleted&&!baselineElement(p,rec.review_id)));
+  s.saved_edits=[];
+  const missing=s.svg_edits.filter(rec=>!baselineElement(p,rec.review_id)).map(rec=>rec.review_id);
+  if(keepNotes!==null)s.notes=keepNotes;
+  s.current_revision=null;s.recovery=null;
+  s.save_status=pageDirty(p)?'pending':'clean';
+  if(page().key===p.key){
+    if(previous){previous=false;historicalMarkup=null}
+    $('#notes').value=s.notes;await render();
+  }
+  await saveDraft();drawSaveStatus();
+  if(missing.length)throw new Error('新版本里已经没有这些元素：'+missing.join('、')+'；你的输入还在这页的恢复草稿里，没有丢');
+  return true;
+}
+async function retryAutosave(){
+  endInlineTextEdit(true);   // 正在打字的这次输入也要算进「没落盘的直改」
+  const stuck=data.pages.filter(p=>state[p.key].save_status==='conflict');
+  let rebased=0;
+  for(const p of stuck){
+    try{await rebasePageOnHost(p);rebased++}
+    catch(error){note(p.key+' 接不到最新版本：'+error.message,'error');retainRecoveryDraft();await saveDraft()}
+  }
+  staleKeys=data.pages.filter(p=>state[p.key].save_status==='conflict').map(p=>p.key);
+  stale=!!staleKeys.length;drawStale();
+  const leftToSave=data.pages.filter(pageDirty).length;   // 接完之后还有没有真的要落的
+  if(await flushWorkbench())note(rebased
+    ? (leftToSave?('已把 '+rebased+' 页的输入接到最新版本上并保存')
+                 :('已把 '+rebased+' 页接到最新版本上：输入本来就在最新版本里'))
+    :'已保存','ok');
+}
 function drawHistory(p){
   const select=$('#historyRevision');
   const selected=select.value;
@@ -2233,6 +2297,12 @@ function drawHistory(p){
   $('#restoreRevision').disabled=!select.value||select.value===p.revision;
   $('#compare').disabled=!p.parent&&!p.previous;
   $('#previewState').textContent='';
+}
+/* 「恢复版本」只开确认框：恢复会新建一版，不能一点就落盘（预览是只读的，恢复必须再问一次）。 */
+function confirmHistoricalRestore(){
+  const p=page(),revision=$('#historyRevision').value;
+  if(!revision||revision===p.revision)return;
+  $('#restoreDialog').showModal();
 }
 async function restoreHistoricalRevision(){
   const p=page(),s=state[p.key],revision=$('#historyRevision').value;
@@ -2458,7 +2528,11 @@ async function restoreDraft(){
     const pending=!!saved.pending_save||editSignature(saved.svg_edits)!==editSignature(saved.saved_edits)
       ||saved.notes!==saved.saved_notes||draft.inline_editor?.page_key===p.key;
     if(pending){
-      s.svg_edits=saved.svg_edits||[];s.saved_edits=saved.saved_edits||[];
+      /* 直改是**元素树路径**（`0.1` 这种）。草稿里存着画面版本时，只有版本对得上才敢套回去：
+       * 画面被重出过，同一个路径指的已经是另一个元素，自动恢复等于改坏别的东西。
+       * 意见/框选/图片/备注是内容，不随画面版本失效，仍然恢复。 */
+      const staleEdits=typeof saved.version==='string'&&p.version!==undefined&&saved.version!==p.version;
+      s.svg_edits=staleEdits?[]:(saved.svg_edits||[]);s.saved_edits=staleEdits?[]:(saved.saved_edits||[]);
       s.notes=saved.notes||'';s.saved_notes=saved.saved_notes||'';
       s.pending_save=saved.pending_save||null;
       s.pending_restore=saved.pending_restore||null;s.allow_restore=!!saved.allow_restore;
@@ -2577,13 +2651,14 @@ async function askReload(){
   const railScroll=$('#rail').scrollTop,panelScroll=$('#reviewPanel').scrollTop;
   try{
     note('正在保存并同步…');
-    /* 同步是冲突唯一的出路，所以它不能先被「存不上」挡住：能落的先落，落不上的进恢复草稿，
-     * 然后让宿主把集合/页序/新版本推过来。逐页输入按 key 存，合并时不会丢。 */
+    /* 刷新不能先被「存不上」挡住：能落的先落，落不上的进恢复草稿，然后让宿主把集合/页序/新版本
+     * 推过来（逐页输入按 key 存，合并时不会丢）。版本冲突的处理在 rebasePageOnHost：刷新只搬运，
+     * 不替人做「谁覆盖谁」的决定。 */
     const flushed=await flushWorkbench();
     if(!flushed)retainRecoveryDraft();
     const synced=await onHostChanged();
     if(!await saveDraft())return false;
-    if(!synced)note('已同步页面集合，但仍有没存上的输入；可点「重试保存」','warn');
+    if(!synced)note('已同步页面集合，但仍有没存上的输入；点「重试保存」把它们接到最新版本上','warn');
     else note(flushed?'已同步最新页面':'已同步页面集合；没存上的输入留在恢复草稿里','ok');
     return true;
   }finally{

@@ -361,6 +361,18 @@
 
 ---
 
+### G-37 「版本冲突」被写死成终态：页面自己指着一个按不动的按钮
+
+- **module**：`assets/review/review.html`（`savePage`／`scheduleWorkbench`／`syncFromHost`／`restoreDraft`／`retryAutosave`）
+- **现象**：人改了字或备注、模型同时把这一页推进了一版 → 页面顶部挂「版本冲突」+「重试保存」，横幅写「输入已保留为恢复草稿」，刷新后的提示写着「可点『重试保存』」。点了它只弹出同一句 `<页> 版本冲突，输入和恢复草稿仍保留`，输入**永远落不下去**：`savePage` 见 `save_status==='conflict'` 直接 return，`scheduleWorkbench` 跳过冲突页，`syncFromHost`／`restoreDraft` 只是把冲突**再判一次**，没有任何路径换掉那个已经过期的基版。真人现场（`05-VideoProject/手冲咖啡/visual_screens` 的 `beat-06`）就是这么卡住的：备注里那一处错字改完之后一直存不上。
+- **原因**：冲突**检测**做了（store 用 `base_revision` CAS 拒掉陈旧保存，这是对的、必须保留），冲突**出口**没做。「不许自动覆盖新版本」被实现成了「谁也不许动」，加上页面自己承诺了一个做不到的动作。
+- **行为修正**：给人一条显式出路 `rebasePageOnHost()`——把宿主当前版本当新基版（`op:get` 重读整页），只有**还没落盘的直改**需要重放（已保存过的直改本来就在新版本那条线上），备注只带走人真改过的；重放不上的（元素在新版本里已被删）**不丢**：留在恢复草稿里并**点名是哪个元素**，由人决定。触发点是「重试保存」这个显式动作（不是后台自动覆盖）。横幅与错误提示改成说清这一步做什么，「刷新」仍只搬运、不替人决定谁覆盖谁。
+  接新基版前必须先把这一页弄成「不脏」（`mergeStoredPage` 见脏就不接），而**备注要连 `saved_notes` 一起归零**：只清 `notes` 会让 `notes!==saved_notes` 继续判脏 —— 真人现场恰好只改了备注（`saved_notes` 里存着一版），第一版修法按下去毫无反应，且是**真机跑现场数据**才暴露出来的（合成用例的 `saved_notes` 是空的，照样绿）。
+- **证据**：`test_review_reported_bugs.py::test_version_conflict_saves_onto_the_newest_revision`（先红：`'别人的字' != '人改的字'`）、`::test_unreplayable_conflict_keeps_the_input`（先红：提示里没有元素名，只有「版本冲突，输入和恢复草稿仍保留」）、`::test_notes_only_conflict_is_rebased_too`（先红：`'别人的备注' != '第二版备注'`）、`::test_conflict_whose_input_already_landed_just_goes_clean`（先红：`'conflict' != 'clean'`）；以及真机现场数据（`beat-06` 副本）：点一下即 `clean`、store 不多造版本、草稿记住新基版。
+- **状态**：已升级（2026-10-16）
+
+---
+
 ## 这个文件不收什么（附理由）
 
 不是所有问题都该变成 gotcha。下面这些**有证据但不入库**，理由跟在各自后面；它们要么已写进别处、要么不是「会稳定复发的行为」。记下来是为了让下一个人不必重新判一遍。
