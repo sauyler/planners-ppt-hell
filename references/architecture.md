@@ -17,12 +17,12 @@
 | 页面文案对表 | `copy_audit.py` 读取内容入口确认的 page_content 与既有来源绑定 | 不另造权威稿；只提示疑似新增文字，未确认明确 unchecked |
 | 页面集合、页序、版本、用户保护、资产与快照 | `workbench_store.py`，add_page / delete_page / order、checkout → save / snapshot；save 输出 changes | 浏览器、模型与导出使用同一接口，不写兼容视图代替提交 |
 | 模板包校验、确认与入库 | `template_library.py` 与模板审阅接口 | 普通制作不承担入库流程；入库批准绑定当前包 |
-| 视频合成及动效字段 | Video Craft 的 composition / SVG animation 契约 | 本 Skill 按契约准备元素与分组；实际动画、时间轴与声音归 Craft |
+| 视频合成及动效字段 | 可选：作者明确要做元素级动效时才按 Video Craft 的 composition / SVG animation 契约准备元素与分组 | 默认不要求 id / step / anchor；没有这些，Craft 按整页画面使用或自行重排。实际动画、时间轴与声音归 Craft |
 
 ## 两条路线
 
 PPT：材料或逐页稿 → 内容适配 → 画面设计 → store → PPT 能力检查 → PPTX 与实际渲染复核。
-视频：材料/上屏稿或 visual-plan → 内容适配 → 画面设计 → store → 视频结构检查 → 固定快照 → Craft。
+视频：材料/上屏稿或 visual-plan → 内容适配 → 画面设计 → store → 固定快照 → Craft。
 直接输入同样可制作；没有上游核查或录音绑定时如实标记，不制造生产包。独立视频快照可用于画面审阅，进入录音合成前由下游建立脚本与时间绑定。
 
 两路共享项目方向、页面设计、保存与快照；PPT 可编辑性限制不套到视频。输入适配定义怎样读取既有产物，不要求用户先运行某个 Skill。

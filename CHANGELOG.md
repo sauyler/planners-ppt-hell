@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-18 — 视频出口松绑：元素 id 从门槛降为可选
+
+**改了什么**：`MISSING_ELEMENT_ID` 从 error 降为 info；`DUPLICATE_ELEMENT_ID` 从 error 降为 warning。两者都不再拦保存、check 或快照。
+
+**为什么**：SVG 本身已经能交给 Video Craft。没有元素 id 时，Craft 可以把整页当一张画面使用，或自行重排；把 id 当成交接门槛等于让 PPT Hell 先变成 storyboard。元素级动效是可选增强，不是页面制作的前置条件。
+
+**同步**：`03_video_route.md` 把 id / data-step / data-anim / anchor / step 全部改成可选；`SKILL.md` 的视频交付说明与 `architecture.md` 的责任边界同步；`scripts/test/test_route_rules.py` 的断言改为 info / warning。
+
+**没动**：快照格式、page_key、页序、资产本地化、渲染与导出。页面仍可自由设计，不新增视频模式或字段。
+
 ## 2026-10-05 — 令牌表移到公共接缝（本 Skill 不再存副本）
 
 要给更多审阅面铺同一套观感，那张表就不能再放在本 Skill 里。已移到 **`planners-review-core/assets/dsh-tokens.css`**

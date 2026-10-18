@@ -263,18 +263,16 @@ class RouteRuleTests(unittest.TestCase):
 
     # ---- I：视频出口独有的一条 —— 这一页得能被按元素指名 ----
 
-    def test_video_page_without_any_element_id_is_refused(self):
-        """实测 44 张真实页面 0 个 id；出口契约说要带 id，产出侧必须有人核。"""
+    def test_video_page_without_any_element_id_is_allowed(self):
+        """没有元素 id 也能交：整页仍可被 Craft 当一张画面使用，id 只是可选增强。"""
         self.write('<rect width="1920" height="1080" fill="#ffffff"/>'
                    '<text x="180" y="300" font-size="48" font-family="Arial" fill="#111111">标题</text>')
         report = validate_file(self.svg, route="video")
         self.assertIn("MISSING_ELEMENT_ID", self.codes(report))
         issue = next(i for i in report["issues"] if i["code"] == "MISSING_ELEMENT_ID")
-        self.assertEqual(issue["severity"], "error")
-        self.assertEqual(report["status"], "fail")
-        # 报错要能指导下一步：给 id，然后重渲这一页。
-        self.assertIn("稳定 id", issue["hint"])
-        self.assertIn("重渲这一页", issue["hint"])
+        self.assertEqual(issue["severity"], "info")
+        self.assertEqual(report["status"], "pass")
+        self.assertIn("可选", issue["hint"])
 
     def test_the_root_svg_id_does_not_count(self):
         self.svg.write_text(HEAD.replace("<svg ", '<svg id="page-shell" ', 1)
@@ -321,7 +319,7 @@ class RouteRuleTests(unittest.TestCase):
 
     # ---- 页内 id 必须唯一（视频出口独有） ----
 
-    def test_a_duplicate_id_in_one_page_is_refused(self):
+    def test_a_duplicate_id_in_one_page_warns_but_does_not_block(self):
         """同一份 SVG 里 id 重复是非法 HTML，也是动画层指错的根源。"""
         self.write('<rect id="stage" width="1920" height="1080" fill="#ffffff"/>'
                    '<text id="caption-1" x="180" y="300" font-size="48" font-family="Arial" '
@@ -330,8 +328,8 @@ class RouteRuleTests(unittest.TestCase):
                    'fill="#111111">二</text>')
         report = validate_file(self.svg, route="video")
         issue = next(i for i in report["issues"] if i["code"] == "DUPLICATE_ELEMENT_ID")
-        self.assertEqual(issue["severity"], "error")
-        self.assertEqual(report["status"], "fail")
+        self.assertEqual(issue["severity"], "warning")
+        self.assertEqual(report["status"], "warning")
         # 哪个 id、重复几次，都要说清。
         self.assertIn("caption-1", issue["message"])
         self.assertIn("2 次", issue["message"])

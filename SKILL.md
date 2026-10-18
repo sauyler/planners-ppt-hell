@@ -37,7 +37,7 @@ SVG 工作台持续存在。用户改字与模型候选共用版本存储；PPT 
 网页先保存末次输入、页序和页面集合并提交 snapshot；宿主唤醒携带确切 snapshot.path。运行 `python scripts/orchestrate/ppt_pipeline.py <project> export --snapshot <snapshot.json绝对路径>` 消费选定版本；指定无效路径直接报错。未指定路径时，`export` 才固定当前页面、页序与资产。
 控制器校验冻结画面。slides 的 PPT、notes 与转换报告在 `_internal/06_ppt_output/<snapshot_id>/`；export 的 output_path 指向实际输出，根 final_deck.pptx 只是最新兼容副本。video 返回不可变 snapshot.json 给 Video Craft。
 PPT 用实际渲染预览运行 `export-inspect --snapshot <同一snapshot.json> --previews <实际PNG...> --note "<工具与发现>"`，绑定该次输出，不要求工作台停止编辑。没有渲染工具就报告未复核，保留 EXPORT_VERIFY；快照校验范围见 [项目契约](references/contracts/project_contract.md)。
-视频保留声明、脚本绑定、稳定元素与步骤钩子。报告 content_delta / changed_needs_check；它们不证明新文本与已录音语义一致。动效与合成规范归 Video Craft。
+视频只保留不可变快照、页序、SVG、资产与 notes；元素 id、步骤钩子、脚本绑定都是可选增强，不要求。报告 content_delta / changed_needs_check；它们不证明新文本与已录音语义一致。动效与合成规范归 Video Craft。
 结束条件：输出的快照与文件可定位、技术结果已报告、实际复核工具及限制清楚。随后仍可回到工作台。
 
 ## 按需读取

@@ -77,9 +77,7 @@ PROHIBITED_TRANSFORMS = ["rotate(", "skew(", "skewX(", "skewY(", "matrix("]
 
 # ── Which half runs on which route ────────────────────────────────
 
-STABLE_ID_HINT = ("给可能被强调的元素一个稳定 id（名字要读得出它在画面里是什么，例如 caption、"
-                  "label-tony-alva、model-stage），并把 page_key 放进名字里（beat-04-caption-1）——"
-                  "各屏会被内联进同一个 DOM，id 要在全片唯一，然后重渲这一页。")
+
 
 def skipped_rules_for_route(route):
     """这条路线不跑的那几组检查，以及每一条为什么被跳过。
@@ -113,11 +111,11 @@ def skipped_rules_for_route(route):
     return [
         {"rule": "MISSING_ELEMENT_ID",
          "codes": ["MISSING_ELEMENT_ID"],
-         "why": "元素 id 是视频出口的接口——动画层按元素指名，不用 DOM 序号。"
+         "why": "元素 id 在视频路线只是可选增强（整页也能交给 Craft），不是交接门槛。"
                 "幻灯片出口的消费者是 PPTX，不靠 id，所以这条检查不在这条路上跑。"},
         {"rule": "DUPLICATE_ELEMENT_ID",
          "codes": ["DUPLICATE_ELEMENT_ID"],
-         "why": "页内 id 唯一同样是视频出口的接口要求（各屏会被内联进同一个 DOM）。"
+         "why": "页内 id 唯一只影响元素级引用；视频路线也只提示、不拦。"
                 "幻灯片出口不按 id 指名，所以这条检查不在这条路上跑。"},
     ]
 
@@ -625,25 +623,27 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
         for diagnostic in image['issues']:
             W(diagnostic['code'], diagnostic['message'], target=image['element_id'])
 
-    # ── 元素必须可被指名、且指得准（视频出口独有） ──
+    # ── 元素 id 只是可选增强，不是视频交接的门槛 ──
+    # 没有 id：整页仍可被 Video Craft 当作一张画面使用；只有元素级动效才需要 id。
+    # 因此这里只报 info，不改 status、不拦保存与快照。
     if not slides:
         ids = element_ids_below_svg(root)
         if not ids:
-            E("MISSING_ELEMENT_ID",
-              "这一页在 <svg> 之下没有任何元素 id——动画层没有东西可以指名 "
-              "(no element id below <svg>)",
+            I("MISSING_ELEMENT_ID",
+              "这一页在 <svg> 之下没有元素 id。仍可作为整页画面交给 Video Craft；"
+              "只有要做元素级动效时才建议补 id。",
               target="svg_structure",
-              hint=STABLE_ID_HINT)
+              hint="可选：给可能被强调的元素一个稳定 id；不需要元素级动效时忽略。")
         duplicates = duplicated_ids(document_ids(root))
         if duplicates:
             page_key = Path(path).stem
-            E("DUPLICATE_ELEMENT_ID",
+            W("DUPLICATE_ELEMENT_ID",
               "这一页里有重复的 id：" + "、".join(f"{name}（{count} 次）" for name, count in duplicates)
-              + "。同一份 SVG 里 id 必须唯一——重复的 id 是非法 HTML，各屏又会被内联进同一个 DOM，"
+              + "。同一份 SVG 里 id 应唯一——重复的 id 是非法 HTML，若要做元素级动效，"
                 "按 id 指名只会命中第一个。",
               target="svg_structure",
               detail="重复的是这份 SVG 里的元素 id（含根 <svg> 自己的 id；data-*-id 与注释不计）。",
-              hint=f"把 page_key 放进 id（例如 {page_key}-caption-1），让每一页的 id 在全片唯一。")
+              hint=f"需要元素级动效时，把 page_key 放进 id（例如 {page_key}-caption-1）；不需要时可忽略。")
 
     # ── Text: fill / family / weight / CSS vars (both routes support <style> + :root var(--...)) ──
     text_nodes = [
