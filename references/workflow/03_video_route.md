@@ -21,7 +21,7 @@ python scripts/init_svg_project.py <project> --assets <pack>/assets --plan <pack
 
 `id`、`data-step`、`data-anim`、`anchor`、`step` 都是**可选**的：只有当你明确要 Video Craft 做元素级动效时才需要，默认不要求。没有这些，Craft 会把整页当作一张画面使用，或自行重排；不要为了“给视频用”而给每个元素补钩子。若确实要做元素级动效，再读 Video Craft 的 references/svg-animation-contract.md 并保持结构可读；具体动效种类与合成事实仍归 Craft，不在本 Skill 维护第二份词表。
 
-`check` 只跑两条出口共同的技术规则。元素 id 只作为 info 提示，重复 id 只作为 warning；两者都不拦保存、不拦快照。PPT 独有的检查不混入 video 出口。看图记录诚实写发现与位置，技术绿色不代替内容或风格判断。
+`check` 只跑两条出口共同的技术规则。**没有元素 id 只报 info**，不拦保存、不拦快照；**页内重复 id 仍是 error**——那是 SVG 自身的唯一性问题，不是视频要求。PPT 独有的检查不混入 video 出口。看图记录诚实写发现与位置，技术绿色不代替内容或风格判断。
 工作台 review 是可用动作，待处理意见仍可以继续保存或独立导出。
 
 ## 固定交接快照

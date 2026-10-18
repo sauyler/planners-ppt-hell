@@ -319,7 +319,7 @@ class RouteRuleTests(unittest.TestCase):
 
     # ---- 页内 id 必须唯一（视频出口独有） ----
 
-    def test_a_duplicate_id_in_one_page_warns_but_does_not_block(self):
+    def test_a_duplicate_id_in_one_page_is_still_refused(self):
         """同一份 SVG 里 id 重复是非法 HTML，也是动画层指错的根源。"""
         self.write('<rect id="stage" width="1920" height="1080" fill="#ffffff"/>'
                    '<text id="caption-1" x="180" y="300" font-size="48" font-family="Arial" '
@@ -328,8 +328,8 @@ class RouteRuleTests(unittest.TestCase):
                    'fill="#111111">二</text>')
         report = validate_file(self.svg, route="video")
         issue = next(i for i in report["issues"] if i["code"] == "DUPLICATE_ELEMENT_ID")
-        self.assertEqual(issue["severity"], "warning")
-        self.assertEqual(report["status"], "warning")
+        self.assertEqual(issue["severity"], "error")
+        self.assertEqual(report["status"], "fail")
         # 哪个 id、重复几次，都要说清。
         self.assertIn("caption-1", issue["message"])
         self.assertIn("2 次", issue["message"])

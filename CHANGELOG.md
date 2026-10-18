@@ -2,7 +2,7 @@
 
 ## 2026-10-18 — 视频出口松绑：元素 id 从门槛降为可选
 
-**改了什么**：`MISSING_ELEMENT_ID` 从 error 降为 info；`DUPLICATE_ELEMENT_ID` 从 error 降为 warning。两者都不再拦保存、check 或快照。
+**改了什么**：`MISSING_ELEMENT_ID` 从 error 降为 info，不再拦保存、check 或快照。`DUPLICATE_ELEMENT_ID` 保持 error——页内重复 id 是 SVG 自身唯一性问题，不属于「视频要求元素 id」；无 id 页面不受影响。
 
 **为什么**：SVG 本身已经能交给 Video Craft。没有元素 id 时，Craft 可以把整页当一张画面使用，或自行重排；把 id 当成交接门槛等于让 PPT Hell 先变成 storyboard。元素级动效是可选增强，不是页面制作的前置条件。
 

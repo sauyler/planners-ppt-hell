@@ -115,8 +115,8 @@ def skipped_rules_for_route(route):
                 "幻灯片出口的消费者是 PPTX，不靠 id，所以这条检查不在这条路上跑。"},
         {"rule": "DUPLICATE_ELEMENT_ID",
          "codes": ["DUPLICATE_ELEMENT_ID"],
-         "why": "页内 id 唯一只影响元素级引用；视频路线也只提示、不拦。"
-                "幻灯片出口不按 id 指名，所以这条检查不在这条路上跑。"},
+         "why": "页内重复 id 是 SVG 自身的唯一性问题，不属于「视频要求元素 id」；"
+                "视频路线仍按 error 处理。幻灯片出口不按 id 指名，所以这条检查不在这条路上跑。"},
     ]
 
 
@@ -637,7 +637,7 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
         duplicates = duplicated_ids(document_ids(root))
         if duplicates:
             page_key = Path(path).stem
-            W("DUPLICATE_ELEMENT_ID",
+            E("DUPLICATE_ELEMENT_ID",
               "这一页里有重复的 id：" + "、".join(f"{name}（{count} 次）" for name, count in duplicates)
               + "。同一份 SVG 里 id 应唯一——重复的 id 是非法 HTML，若要做元素级动效，"
                 "按 id 指名只会命中第一个。",
