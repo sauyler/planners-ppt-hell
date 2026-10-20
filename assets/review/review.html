@@ -6,7 +6,7 @@ __REVIEW_UI__
 /* The workbench uses shared review tokens; slide artwork keeps its own styling. */
 *{box-sizing:border-box}
 html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-body{margin:0;height:100vh;overflow:hidden;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xs-13);display:flex;flex-direction:column}
+body{margin:0;height:100vh;overflow:hidden;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:13px/1.6 var(--dsw-font-family);display:flex;flex-direction:column}
 ::selection{background:var(--dsw-alias-bg-document-selection)}
 /* `hidden` 属性靠 UA 的 `display:none` 生效，**任何作者写的 display 都会盖掉它** ——
    `.field{display:flex}` 就让"藏起来的那一行"照旧显示（2026-10-06 截图里：选了「原始」，
@@ -41,11 +41,11 @@ header small{display:none}
 .edit-hint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);white-space:nowrap;padding:0 4px}
 .toolbar-metric{font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-xs);height:24px;padding:0 8px;min-width:48px;display:inline-flex;align-items:center;justify-content:center}
 .compact-btn{height:34px;min-width:34px;padding:0 8px;display:inline-flex;align-items:center;justify-content:center;font:var(--dsw-font-xxs-strong-12);border-radius:6px;white-space:nowrap;flex-shrink:0}
-.ppt-toolbar button,.ppt-toolbar select,.micro-edit-bar button,.micro-edit-bar input{height:34px;min-height:34px;font-size:13px}
-.ppt-toolbar [data-review-icon],.micro-edit-bar [data-review-icon],footer [data-review-icon]{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:0 0 18px}
+.ppt-toolbar button,.ppt-toolbar select,.micro-edit-bar button,.micro-edit-bar input{height:30px;min-height:30px;font-size:12.5px;border-radius:var(--dsw-radius-xs)}
+.ppt-toolbar [data-review-icon],.micro-edit-bar [data-review-icon],footer [data-review-icon]{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:0 0 16px}
 .toolbar-spacer{flex:1}
 .version-menu{position:relative;flex-shrink:0}
-.version-menu summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px}
+.version-menu summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-xs);font-size:12.5px}
 .version-menu summary::-webkit-details-marker{display:none}
 .version-controls{position:fixed;right:16px;top:100px;z-index:24;display:flex;flex-direction:column;gap:8px;padding:12px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:6px;box-shadow:var(--dsw-elevation-panel)}
 .version-controls button,.version-controls select{width:180px}
@@ -80,8 +80,9 @@ header small{display:none}
 
 /* Center Stage */
 .stage{min-width:0;display:flex;flex-direction:column;justify-content:center;align-items:center;overflow:hidden;background:var(--dsw-alias-bg-document-preview);border-radius:var(--dsw-radius-md);padding:12px;position:relative}
-.stage-head{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;padding:0 4px}
-.stage h2{font:var(--dsw-font-base-strong-16);margin:0;color:var(--dsw-alias-label-primary);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stage-head{width:100%;display:flex;align-items:center;justify-content:flex-end;gap:12px;margin:0 0 4px;padding:0 4px;min-height:0}
+.stage-head h2{display:none}
+.stage h2{font:500 18px/1.4 var(--dsw-font-family);margin:0;color:var(--dsw-alias-label-primary);letter-spacing:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stage-hint{display:none}
 .preview{position:relative;width:100%;line-height:0;max-height:calc(100% - 44px);aspect-ratio:16/9;background:var(--dsw-alias-bg-layer-1);border-radius:var(--dsw-radius-sm);box-shadow:var(--dsw-elevation-panel);overflow:hidden;user-select:none}
 .preview img#slide{width:100%;height:100%;object-fit:contain;background:var(--dsw-alias-bg-layer-1);user-select:none;display:block}
@@ -182,7 +183,7 @@ dialog{border:0;border-radius:var(--dsw-radius-lg);padding:24px;width:min(540px,
 dialog::backdrop{background:var(--dsw-alias-bg-mask-1)}
 dialog textarea{width:100%;min-height:96px;font:inherit;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);margin:8px 0;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}
 /* 提示行做成他们的 toast：深底浅字，带圆角与浮起 */
-#message{position:fixed;bottom:72px;left:50%;transform:translateX(-50%);z-index:40;width:max-content;max-width:min(520px,calc(100vw - 24px));font:var(--dsw-font-xs-strong-13);padding:9px 14px;border-radius:6px;background:var(--dsw-alias-toast-bg);color:var(--dsw-alias-toast-label);box-shadow:var(--dsw-elevation-panel);line-height:1.5;overflow-wrap:anywhere}
+#message{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:40;width:max-content;max-width:min(420px,calc(100vw - 24px));font:12px/1.5 var(--dsw-font-family);padding:6px 12px;border-radius:var(--dsw-radius-xs);background:var(--dsw-alias-toast-bg);color:var(--dsw-alias-toast-label);box-shadow:var(--dsw-elevation-panel);line-height:1.5;overflow-wrap:anywhere}
 #message:empty{display:none}
 #message.ok{background:var(--dsw-alias-toast-bg);color:var(--dsw-alias-toast-label)}
 #message.warn{background:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-label-primary-foreground)}
@@ -231,6 +232,8 @@ dialog textarea{width:100%;min-height:96px;font:inherit;padding:8px;border:1px s
   header .brand-left{gap:8px;min-width:0;max-width:100%}
   header b#project{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #pageStatus{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
+  .header-status{font-size:12px;color:var(--dsw-alias-label-secondary);display:inline-flex;align-items:center;gap:6px}
+  .header-status::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-success-primary)}
   .workspace{grid-template-columns:72px minmax(0,1fr);grid-template-rows:minmax(240px,1fr) auto;overflow:auto;align-items:stretch}
   .workspace.panel-collapsed{grid-template-columns:72px minmax(0,1fr);grid-template-rows:minmax(240px,1fr)}
   .rail{grid-row:1;min-height:240px}
@@ -255,7 +258,7 @@ dialog textarea{width:100%;min-height:96px;font:inherit;padding:8px;border:1px s
   <div class="brand-left">
     <span class="review-brand" aria-label="审阅工作台"><span class="review-brand-mark" aria-hidden="true"></span><span aria-hidden="true">Logics</span></span>
     <b id="project"></b>
-    <span id="pageStatus" class="toolbar-metric" style="background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)"></span>
+    <span id="pageStatus" class="header-status"></span>
     <button id="retrySave" class="review-secondary-action" onclick="retryAutosave()" hidden>重试保存</button>
   </div>
   <div class="status-pills">
