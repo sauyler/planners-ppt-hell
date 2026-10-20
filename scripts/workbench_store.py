@@ -519,8 +519,14 @@ def save_page(root, head, command, browser, prepared_candidate=None):
             authorized = page_task.get('rewrite_elements', [])
         missing = lost_edits(tree, protected, authorized)
         if missing:
-            raise StoreError('human_edits_lost', 'Candidate drops retained human edits', elements=missing,
-                             candidate=str(candidate) if candidate else None)
+            # 把 guard 原样带回去：整页重建时照着它把节点写回来即可，不必再 op=get 猜一遍。
+            raise StoreError(
+                'human_edits_lost',
+                'Candidate drops retained human edits; re-apply each element with the same '
+                'data-workbench-id carrying the guarded text and attributes',
+                elements=missing,
+                guards={identity: protected[identity] for identity in missing},
+                candidate=str(candidate) if candidate else None)
         for identity in authorized:
             protected.pop(identity, None)
     notes = command.get('notes', current['notes'])

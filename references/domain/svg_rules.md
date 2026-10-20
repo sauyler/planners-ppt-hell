@@ -15,7 +15,7 @@
 - **核心图元**：使用 `rect`、`line`、`circle`、`ellipse`、`polygon`、`polyline`、`path`、`text`、`image`、`linearGradient`、`radialGradient` 及结构化的 `g`。
 - **双出口原生支持 `<style>` 与 `:root` `var(--...)` 设计令牌**：
   - `slides`（可编辑 PPT）与 `video`（视频静态画面）现在**均原生支持**页内 `<style>` 块与 `:root { --token: value; }` CSS 变量！
-  - `native_svg_to_ppt.py` 与 `validate_svg_layout.py` 会在解析阶段自动展开 `:root` 变量并将 `.class`、`#id`、`tag` 选择器内联到元素属性上，页面需要包含所用 token 定义；复杂样式以实际渲染与转换报告为准。
+  - 展开逻辑只有一份实现：`scripts/lib/svg_style_inline.py`。`native_svg_to_ppt.py`（转 PPT）、`validate_svg_layout.py`（校验）、`generate_review_html.py`（审阅工作台预览）三处都 import 它，所以同一页在三个地方看到的是同一种效果 —— 工作台预览会展开规则后摘掉 `<style>`，不再拒绝这类页面。页面需要包含所用 token 定义；复杂样式以实际渲染与转换报告为准。
   - 页面内若引用了未在 `:root` 中定义的 `var(--...)`（且无 fallback），会被检查器以 `UNDEFINED_CSS_VAR` 拦截。
 - **文本与多行排版**：
   - 优先使用每行独立 `<text>` 或带 `<tspan x="..." dy="...">` 的显式多行段落（转换器会将带正 `dy` 的 `<tspan>` 自动拆分为 PowerPoint 文本框内的独立段落）。

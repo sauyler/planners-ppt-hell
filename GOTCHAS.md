@@ -380,6 +380,24 @@
 - **证据**：`check --pages beat-01` 修前 `['EMPTY_SLIDE']`、修后 `[]`（同一份 SVG）。
 - **状态**：已升级（2026-10-16）
 
+### G-39 同一个 SVG 的第三个消费方：文档说支持 `:root` 变量，审阅工作台却拒绝任何 `<style>`
+
+- **module**：`scripts/generate_review_html.py`（`prepare_inline_svg`）、`scripts/lib/svg_style_inline.py`（新 owner）、`references/domain/svg_rules.md` §2
+- **现象**：按 `svg_rules.md` §2 的写法（`:root` 定 token、`.class` 取 `var(--…)`）做完页面，`validate_svg_layout.py` 判 `pass`、`native_svg_to_ppt.py` 转 PPT 也正确（实测 96px → 47.99pt、颜色 `#FFFFFF`/`#E2F827` 都对），但走到审阅那一步 `generate_review_html` 直接抛 `workbench inline preview does not support SVG CSS rules`。一条腿通、另一条腿断，而断的那条是每个项目必经的。
+- **原因**：一个 SVG 有三个消费方（校验器、PPT 转换器、审阅工作台），样式展开是转换器里的一份实现，工作台侧没接上。工作台把页面内联进宿主 HTML，`.title{…}` 会污染宿主和其它页，于是选了「见到 `<style>` 就拒绝」而不是「展开后隔离」。
+- **行为修正**：把展开逻辑抽成唯一实现 `scripts/lib/svg_style_inline.py`，转换器与工作台都 import 它；工作台展开后摘掉 `<style>` 再做 id 前缀隔离，并对展开后仍残留的 `var(--x)` 当场报错点名元素（不再静默丢声明）。`svg_rules.md` §2 同步写明三个消费方共用同一实现。
+- **证据**：同一个 SVG，修前工作台抛 `ValueError`；修后 `02_visual_review.html` 内联片段里 `<style>` 已摘除、`font-size="96px"`/`fill="#FFFFFF"`/`font-weight="900"` 均已落到元素属性。
+- **状态**：已升级（2026-10-20）
+
+### G-40 模板包与 manifest 脱同步，`apply` 在第一个用它的项目上硬失败
+
+- **module**：`assets/template_library/*`（manifest 哈希）、`scripts/template/template_library.py`（`verify_library`）、`scripts/test/test_template_library_integrity.py`
+- **现象**：`template_library.py apply --template-id dark-titanium-cockpit` 报 `manifest.json file hash mismatch`。全量对账：manifest 登记 139 个文件，**88 个在磁盘上不存在、102 个磁盘文件未登记**；`pinterest-neo-swiss-video` 同样脱同步；而 `planner-simple-default` 是 v1 legacy 包，被 v2 的四件套规则误判。原语发布后改过名，哈希没重算。
+- **原因**：`validate_pack_dir(..., check_manifest_hashes=True)` 只在测试的临时 fixture 上跑过，**已发布的包没有任何检查**；库无 CI、无 pre-commit，`unittest discover` 靠人记得跑。
+- **行为修正**：新增 `verify_library()` 作为唯一入口（CLI `template_library.py verify` 与测试都调它），按 schema 分流 v2 四件套 / v1 legacy；`validate_pack_dir` 在核对哈希时同时检查声明的 `preview` 是否存在。三个包的哈希已重算，`dark-titanium-cockpit` 缺失的 `previews/full_deck_contact_sheet.png` 用现有 52 张预览重新拼出。发布流程在 `PUBLISHING.md` 里加了一步闸门。
+- **证据**：`verify` 修前 `valid: false`（3 个包有问题）→ 修后 `valid: true`（5 个包全过）；`test_repaired_pack_still_applies` 证明修好之后文档里的 `apply` 真能跑通。
+- **状态**：已升级（2026-10-20）
+
 ---
 ---
 

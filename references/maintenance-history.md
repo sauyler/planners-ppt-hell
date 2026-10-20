@@ -454,6 +454,14 @@ SIGKILL 升级、身份比对只在一家修过）。现在收进 `planners-revi
 
 v5.2.1（描边保真：删掉描边上的 `* 0.6` 系数，新增低于 0.5pt 的告警）及更早的改动只记在 `CHANGELOG.md`。**更新这一节之前先看 `references/architecture.md` 的「动了 X 会牵连什么」**——边界变了就同步改它，然后把这次改动记到这里。
 
+## 2026-10-20 · 样式展开收成一份实现、模板包加发布前闸门、整页重建配方
+
+| 做了什么 | 为什么 | 影响了哪些 module | 删了什么 |
+|---|---|---|---|
+| 把 `<style>`/`:root` 展开从转换器抽成 `scripts/lib/svg_style_inline.py`，转换器、校验器之外的第三个消费方（审阅工作台 `generate_review_html.prepare_inline_svg`）改为 import 同一实现；展开后摘 `<style>`，残留 `var(--x)` 当场报错点名元素 | 同一个 SVG 三个消费方，一份实现只接了两个：文档承诺支持 token，工作台却拒绝任何 `<style>`，而工作台是每个项目的必经路径 | `scripts/lib/svg_style_inline.py`（新）、`scripts/native_svg_to_ppt.py`、`scripts/generate_review_html.py`、`references/domain/svg_rules.md` §2、`scripts/test/test_workbench_ui.py` | 工作台「见到 `<style>` 就抛错」的旧契约 |
+| 新增 `template_library.verify_library()` 与 CLI `verify`；按 schema 分流 v2 四件套 / v1 legacy；`validate_pack_dir` 顺带检查声明的 `preview` 是否存在；新增 `scripts/test/test_template_library_integrity.py` | 已发布的包没有任何检查跑过，`dark-titanium-cockpit` 脱同步 88 个文件、`pinterest` 同样漂移，直到项目 `apply` 时才发现 | `scripts/template/template_library.py`、`assets/template_library/*/manifest.json`、`scripts/test/test_template_library_integrity.py`、`PUBLISHING.md` | 「模板包哈希只在临时 fixture 上被验证」的默认 |
+| `human_edits_lost` 回执带上 `guards`（逐元素的 `text`/`attributes`/`deleted`）；`04_svg_stage.md` 增「用生成器重建整页」一节 | 整页重建时 agent 只能反推守卫内容，同一件事在多个页面上反复返工 | `scripts/workbench_store.py`、`references/workflow/04_svg_stage.md` | — |
+
 ## 2026-10-15 · 页面集合操作、页序交接与大字编辑
 
 | 做了什么 | 为什么 | 影响了哪些 module | 删了什么 |

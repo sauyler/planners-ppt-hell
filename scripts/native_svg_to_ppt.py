@@ -40,6 +40,8 @@ from canvas_frame import FRAME_H_INT, FRAME_W_INT  # noqa: E402
 from canvas_frame import SLIDE_H_IN as FRAME_SLIDE_H_IN  # noqa: E402
 from canvas_frame import SLIDE_W_IN as FRAME_SLIDE_W_IN  # noqa: E402
 
+from lib.svg_style_inline import _css_declarations  # noqa: E402
+from lib.svg_style_inline import inline_svg_styles_and_vars  # noqa: E402
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
@@ -113,11 +115,6 @@ def parse_svg_canvas_size(svg_file):
 # CSS <style> 与 :root 变量展开 (v6.0)
 # ═══════════════════════════════════════
 
-_XML_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
-_STYLE_ELEMENT_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.S | re.I)
-_CSS_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
-_CSS_RULE_RE = re.compile(r"([^{}]+)\{([^{}]*)\}")
-_CSS_VAR_RE = re.compile(r"var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)")
 _NUM_CLEAN_RE = re.compile(r"[-+]?(?:\d*\.)?\d+(?:[eE][-+]?\d+)?")
 
 
@@ -131,168 +128,14 @@ def _parse_svg_num(val, default=0.0):
     return float(m.group(0)) if m else default
 
 
-def _css_declarations(text):
-    declarations = {}
-    for piece in str(text or "").split(";"):
-        if ":" not in piece:
-            continue
-        prop, value = piece.split(":", 1)
-        prop = prop.strip()
-        if not prop.startswith("--"):
-            prop = prop.lower()
-        value = value.strip()
-        if prop and value:
-            declarations[prop] = value
-    return declarations
 
 
-def _resolve_var_string(value, custom_props):
-    """Expand var(--token, fallback) references up to 10 levels deep."""
-    if not value or "var(" not in str(value):
-        return value
-    resolved = str(value)
-    for _ in range(10):
-        if "var(" not in resolved:
-            break
-        changed = False
-
-        def _repl(match):
-            nonlocal changed
-            token = match.group(1)
-            fallback = match.group(2)
-            if token in custom_props:
-                changed = True
-                return custom_props[token]
-            if fallback is not None and fallback.strip():
-                changed = True
-                return fallback.strip()
-            return match.group(0)
-
-        resolved = _CSS_VAR_RE.sub(_repl, resolved)
-        if not changed:
-            break
-    return resolved
 
 
-def _simple_compound_matches(node, compound):
-    """Check if a single selector compound (e.g. 'text.title#hero' or '.card' or ':root') matches node."""
-    if compound in (":root", "svg"):
-        tag = node.tag.split("}")[-1] if "}" in node.tag else node.tag
-        return tag == "svg"
-    tag = node.tag.split("}")[-1] if "}" in node.tag else node.tag
-    node_id = (node.attrib.get("id") or "").strip()
-    node_classes = set((node.attrib.get("class") or "").split())
-
-    # Extract tag if present at start
-    m_tag = re.match(r"^([A-Za-z][A-Za-z0-9_-]*)", compound)
-    if m_tag and m_tag.group(1) != tag:
-        return False
-    for m_id in re.findall(r"#([A-Za-z_][-\w]*)", compound):
-        if m_id != node_id:
-            return False
-    for m_cls in re.findall(r"\.([A-Za-z_][-\w]*)", compound):
-        if m_cls not in node_classes:
-            return False
-    return bool(m_tag or "#" in compound or "." in compound)
 
 
-def _selector_matches_node(node, parent_map, compounds):
-    """Match descendant selector compounds from right to left."""
-    current = node
-    for index, compound in enumerate(reversed(compounds)):
-        if index == 0:
-            if not _simple_compound_matches(current, compound):
-                return False
-        else:
-            while current is not None and not _simple_compound_matches(current, compound):
-                current = parent_map.get(current)
-            if current is None:
-                return False
-        current = parent_map.get(current)
-    return True
 
 
-def inline_svg_styles_and_vars(root, raw_svg_text=None):
-    """Expand inline <style> rules, inline style='' attributes, and :root CSS variables (var(--...))
-    directly onto SVG DOM element attributes before PPT conversion.
-    """
-    style_blocks = []
-    if raw_svg_text:
-        style_blocks.extend(_STYLE_ELEMENT_RE.findall(_XML_COMMENT_RE.sub("", raw_svg_text)))
-    for node in root.iter():
-        tag = node.tag.split("}")[-1] if "}" in node.tag else node.tag
-        if tag == "style":
-            txt = "".join(node.itertext())
-            if txt and txt not in style_blocks:
-                style_blocks.append(txt)
-
-    rules = []
-    custom_props = {}
-
-    for block in style_blocks:
-        clean_block = _CSS_COMMENT_RE.sub("", block)
-        for match in _CSS_RULE_RE.finditer(clean_block):
-            decls = _css_declarations(match.group(2))
-            if not decls:
-                continue
-            for k, v in decls.items():
-                if k.startswith("--"):
-                    custom_props[k] = v
-            selectors = []
-            for part in match.group(1).split(","):
-                compounds = [c.strip() for c in part.strip().split() if c.strip()]
-                if compounds:
-                    selectors.append(compounds)
-            if selectors:
-                rules.append((selectors, decls))
-
-    for node in root.iter():
-        for k, v in _css_declarations(node.attrib.get("style")).items():
-            if k.startswith("--"):
-                custom_props[k] = v
-
-    # Resolve transitive var(--...) inside custom_props
-    for _ in range(10):
-        changed = False
-        for k, v in list(custom_props.items()):
-            new_v = _resolve_var_string(v, custom_props)
-            if new_v != v:
-                custom_props[k] = new_v
-                changed = True
-        if not changed:
-            break
-
-    parent_map = {child: parent for parent in root.iter() for child in parent}
-
-    for node in root.iter():
-        tag = node.tag.split("}")[-1] if "}" in node.tag else node.tag
-        if tag == "style":
-            continue
-
-        # 1. Apply matched <style> rules (if attribute not explicitly set on element)
-        if rules:
-            matched_props = {}
-            for selectors, decls in rules:
-                if any(_selector_matches_node(node, parent_map, comp) for comp in selectors):
-                    for k, v in decls.items():
-                        if not k.startswith("--"):
-                            matched_props[k] = v
-            for k, v in matched_props.items():
-                if k not in node.attrib:
-                    node.set(k, v)
-
-        # 2. Apply inline style="..." declarations (overrides element attributes)
-        inline_decls = _css_declarations(node.attrib.get("style"))
-        for k, v in inline_decls.items():
-            if not k.startswith("--"):
-                node.set(k, v)
-
-        # 3. Expand var(--...) across all attributes on node
-        for attr_k, attr_v in list(node.attrib.items()):
-            if "var(" in str(attr_v):
-                node.set(attr_k, _resolve_var_string(attr_v, custom_props))
-
-    return custom_props
 
 
 # ═══════════════════════════════════════

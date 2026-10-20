@@ -128,6 +128,9 @@ def validate_pack_dir(pack_dir, check_manifest_hashes=False):
                 issues.append("manifest.json file hash mismatch")
             if manifest.get("package_sha256") != package_sha256(actual_hashes):
                 issues.append("manifest.json package_sha256 mismatch")
+            preview = manifest.get("preview")
+            if preview and not (pack_dir / preview).is_file():
+                issues.append(f"manifest.json declares a missing preview: {preview}")
 
     return {
         "valid": len(issues) == 0,
@@ -469,6 +472,48 @@ def apply_template(project_root, template_id, library_root=None):
     return manifest
 
 
+def verify_library(library_root=None):
+    """发布前体检：库里的每个包都要通过 `check_manifest_hashes=True`。
+
+    每发布一次模板库，包的内容就可能动一次；哈希不重算，`apply` 会在第一个用它的项目上硬失败。
+    这个函数是那条规则的唯一入口：CLI 的 `verify` 和测试都调它，不要各写一份遍历。
+    """
+    lib_root = Path(library_root).resolve() if library_root else LIBRARY_ROOT.resolve()
+    packs = []
+    if lib_root.is_dir():
+        for manifest_path in sorted(lib_root.glob("*/manifest.json")):
+            pack_dir = manifest_path.parent
+            manifest = read_json(manifest_path, {})
+            issues = []
+            is_multimodal = (manifest.get("schema") == "planner.multimodal-template-pack.v2"
+                             or "four_piece_contract" in manifest)
+            if is_multimodal:
+                # v2 四件套：规格、原语、锚点、tokens 全部要在，哈希要能复算
+                issues = validate_pack_dir(pack_dir, check_manifest_hashes=True)["issues"]
+            else:
+                # v1 legacy fidelity 包：没有四件套结构，只核对哈希与 registry 可读
+                actual = package_hashes(pack_dir)
+                if manifest.get("files") != actual:
+                    issues.append("manifest.json file hash mismatch")
+                if manifest.get("package_sha256") != package_sha256(actual):
+                    issues.append("manifest.json package_sha256 mismatch")
+                registry = pack_dir / "fidelity_template" / "template_registry.json"
+                if not registry.is_file():
+                    issues.append("Missing fidelity_template/template_registry.json")
+            packs.append({
+                "template_id": pack_dir.name,
+                "schema": manifest.get("schema", ""),
+                "valid": not issues,
+                "issues": issues,
+                "files": len(manifest.get("files", {})),
+            })
+    return {
+        "valid": bool(packs) and all(p["valid"] for p in packs),
+        "library_root": str(lib_root),
+        "packs": packs,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Manage Planner's local approved template library")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -487,6 +532,9 @@ def main():
     p_pub.add_argument("--library-root", default=None)
     p_pub.add_argument('--replace',action='store_true',help='Replace this ID and preserve the old package in .history')
 
+    p_verify = sub.add_parser("verify", help="发布前体检：逐包核对 manifest 哈希与 preview")
+    p_verify.add_argument("--library-root", default=None)
+
     p_app = sub.add_parser("apply")
     p_app.add_argument("project_dir")
     p_app.add_argument("--template-id", required=True)
@@ -497,6 +545,11 @@ def main():
         result = list_templates(args.library_root)
     elif args.command == "validate":
         result = validate_pack_dir(args.pack_dir, check_manifest_hashes=args.check_hashes)
+        if not result["valid"]:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            sys.exit(1)
+    elif args.command == "verify":
+        result = verify_library(args.library_root)
         if not result["valid"]:
             print(json.dumps(result, ensure_ascii=False, indent=2))
             sys.exit(1)

@@ -22,6 +22,7 @@ from project_state import (PNG, REVIEW, SVG, content, images, local, read,
                            review_snapshot, sha, source_digest, versions, write)
 from review_surface import DRAFT_REL, resolve_module, write_surface
 from workbench_store import ensure, get_page
+from lib.svg_style_inline import expand_for_inline
 
 SNAPSHOT_REL = f'{REVIEW}/snapshot.json'
 VERSIONS_REL = f'{REVIEW}/versions'
@@ -49,9 +50,12 @@ def prepare_inline_svg(root, key, page_record=None):
         svg_root = ET.fromstring(record.get('svg') or '')
     except ET.ParseError:
         return ''
-    if any(node.tag.split('}')[-1] == 'style' and (node.text or '').strip()
-           for node in svg_root.iter()):
-        raise ValueError(f'{key}: workbench inline preview does not support SVG CSS rules; use presentation attributes')
+    # 页内 `<style>` 与 `var(--token)` 在这里展开成字面属性，然后摘掉 `<style>` 再做 id 前缀隔离。
+    # 与 PPT 转换器共用 `lib/svg_style_inline` 的同一份实现：一个 SVG 的两个消费方看到的必须同一种效果。
+    try:
+        expand_for_inline(svg_root, raw_svg_text=record.get('svg') or '')
+    except ValueError as exc:
+        raise ValueError(f'{key}: {exc}') from exc
 
     prefix = f'rvsvg_{key}_'
     id_map = {}

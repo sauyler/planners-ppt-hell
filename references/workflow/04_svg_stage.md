@@ -30,6 +30,28 @@ task_id 的改写授权绑定反馈当时的 revision；首次保存后再迭代
 冲突不覆盖当前页：保留候选，重新 checkout 最新版本。候选遗漏 protected 用户改字、位置或删除会被拦下。指定元素改写必须有浏览器 feedback 的显式 rewrite_elements 授权；模型不手写授权。
 兼容 _internal/02_svg_source 是可重建输出，生成器不能写它。也不手写 head、revision、保护记录或任务完成戳。
 
+## 用生成器重建整页
+
+有时整页是由脚本生成的（数据驱动版面、批量改字号、换一套字阶），这时「在候选上改几笔」不适用：新 SVG 从零生成，用户改过的字会被静默丢掉。store 的保护机制会拦下这种提交，回执里 `code=human_edits_lost`。
+
+**它给的是配方，不是拒绝**。回执里 `elements` 是被丢掉的元素 ID，`guards` 是每个 ID 的守卫内容（`text` 是要逐字保留的文本，`attributes` 是被固定住的属性值，`deleted` 表示用户删过它）。照这份 `guards` 重建：
+
+1. 生成新 SVG。
+2. 对 `guards` 里每一项，在**同一位置**输出同一段内容，并带上原来的 `data-workbench-id`：
+   - `{"text": "…"}` → 该节点文字必须逐字等于它；
+   - `{"attributes": {"font-size": "36"}}` → 该属性必须等于这个值；
+   - `{"deleted": true}` → 新 SVG 里不能再出现这个节点。
+3. 再 `save`。校验通过即说明用户的改动保住了。
+
+不要把 `guards` 当成「必须原样复制整页」——它只锁定用户真正动过的那几处，其余版面照你的生成结果走。也不要用 `author=human` 或手写授权绕过：`rewrite_elements` 只能来自浏览器反馈。
+
+```json
+// 回执示例（save 被拦下时）
+{"ok": false, "code": "human_edits_lost",
+ "elements": ["wb_7c41d030…"],
+ "guards": {"wb_7c41d030…": {"text": "小红书，放大符号传播"}}}
+```
+
 ## 换图与路径
 
 先用 `python scripts/orchestrate/ppt_pipeline.py <project> frames --pages alpha` 读取当前已保存页的图片 ID、槽位、源图尺寸与 fit 测量，再 checkout。换图按稳定元素 ID 定位；无 ID 时先确认唯一目标，坐标辅助定位。源文件名会被冻结为哈希，不能依赖文件名在所有版本中保持一致。

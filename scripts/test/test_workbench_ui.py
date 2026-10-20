@@ -67,12 +67,27 @@ class WorkbenchGeneratorTests(unittest.TestCase):
         self.assertNotIn('command_backend', template)
         self.assertNotIn('command', template['capabilities'])
 
-    def test_inline_css_rules_are_explicitly_unsupported(self):
+    def test_inline_svg_style_rules_are_expanded_not_refused(self):
+        """页内 `<style>` 在预览里展开成字面属性，然后摘掉 style 节点。
+
+        这条断言守的是「一个 SVG、两个消费方、同一种效果」：转换器会展开，
+        预览必须展开，不能一边支持一边拒绝。
+        """
         stored = get_page(self.root, 'alpha')
         tree = ET.fromstring(stored['svg'])
         ET.SubElement(tree, '{http://www.w3.org/2000/svg}style').text = '#heading {fill:red}'
         stored['svg'] = ET.tostring(tree, encoding='unicode')
-        with self.assertRaisesRegex(ValueError, 'does not support SVG CSS rules'):
+        html = prepare_inline_svg(self.root, 'alpha', stored)
+        self.assertNotIn('<style', html)
+        self.assertIn('fill="red"', html)
+
+    def test_undefined_css_variable_is_reported(self):
+        """引用了没定义的 token 时当场报错，而不是静默丢掉这条声明。"""
+        stored = get_page(self.root, 'alpha')
+        tree = ET.fromstring(stored['svg'])
+        ET.SubElement(tree, '{http://www.w3.org/2000/svg}text').set('fill', 'var(--nope)')
+        stored['svg'] = ET.tostring(tree, encoding='unicode')
+        with self.assertRaisesRegex(ValueError, 'undefined CSS variable'):
             prepare_inline_svg(self.root, 'alpha', stored)
 
     def test_animation_identity_survives_edit_and_snapshot(self):
