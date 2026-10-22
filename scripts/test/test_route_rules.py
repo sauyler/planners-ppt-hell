@@ -141,9 +141,9 @@ class RouteRuleTests(unittest.TestCase):
         detail = issues[0]["detail"]
         self.assertIn("--accent-typo", detail)
         self.assertIn("#ff0000", detail)
-        # 后果要说出来：回退值让它看起来正常，但换主题时这一处不会跟着变。
+        # 后果要说出来：回退值让它看起来正常，但换模板或风格文档时这一处不会跟着变。
         self.assertIn("看起来正常", detail)
-        self.assertIn("换主题时这一处不会跟着变，风格库对它失效", detail)
+        self.assertIn("换模板或风格文档时这一处不会跟着变", detail)
         self.assertIn("class 命中的 <style> 规则", detail)
 
     def test_undefined_token_in_an_element_attribute_is_caught_too(self):

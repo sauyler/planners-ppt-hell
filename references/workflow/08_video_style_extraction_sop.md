@@ -11,5 +11,5 @@
 
 ## 保存与复用
 
-视频主题的共享数值与主题注册由 Craft 的 `visual/themes/<id>/` 维护，本 Skill 通过 `scripts/style/theme_tokens.py` 读取。参考图及静态试做可保存在本 Skill 的 `assets/video_style_references/<id>/`；制作说明引用主题数值与动作接口，描述样张用途和变化方式。
-迁移验证通过后再审阅当前候选；主题库变更依其维护流程执行。只为当前项目使用参考时无需注册主题。跨 Skill 的正式修改与发布统一在候选验证完成后进行。
+视频风格的共享数值与风格登记由**本 Skill 自己维护**：风格文档（`references/domain/video_style_*.md`，当前为 `video_style_editorial_archive.md`）持有数值与用法，参考图及静态试做保存在本 Skill 的 `assets/video_style_references/<id>/`。不向 Video Craft 注册风格，也不读取它的主题库；Craft 只消费成品画面与它的动画契约。制作说明引用本 Skill 的风格数值与动作接口，描述样张用途和变化方式。
+迁移验证通过后再审阅当前候选；风格文档变更依本 Skill 的维护流程执行。只为当前项目使用参考时不必先写成风格文档。**注册到别的 Skill 已取消**：跨 Skill 的正式修改与发布统一在候选验证完成后进行。

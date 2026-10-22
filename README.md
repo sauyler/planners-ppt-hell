@@ -139,7 +139,7 @@ python scripts/init_svg_project.py <project>/<画面目录> \
     --assets <包>/assets --plan <包>/visual-plan.json
 ```
 
-没有生产包时可用 `--source <上屏稿.md> --route video` 直接制作，快照标明尚未绑定脚本。视觉身份来自 Video Craft 的主题或已确认自主方向。普通 SVG 不要求逐页/整套批准，录制或交接用不可变 snapshot.json；完整流程见 [视频路线](references/workflow/03_video_route.md)。
+没有生产包时可用 `--source <上屏稿.md> --route video` 直接制作，快照标明尚未绑定脚本。视觉身份由本 Skill 自己维护的视频风格文档（`references/domain/video_style_*.md`）或模板决定，也可以明确自主设计；不再从 Video Craft 的主题库挑，也不向它注册主题。普通 SVG 不要求逐页/整套批准，录制或交接用不可变 snapshot.json；完整流程见 [视频路线](references/workflow/03_video_route.md)。
 
 工作台持续可编辑，没有永久 COMPLETE。5.0 项目首次接入导入既有 SVG；更早项目不混用旧状态机。模板入库仍需当前包人工确认。
 

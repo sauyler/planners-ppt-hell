@@ -267,10 +267,10 @@
 
 ### G-11 拿一个库顶另一个库
 
-- **module**：`scripts/template/`（模板库）↔ `scripts/style/theme_tokens.py`／`references/workflow/03_video_route.md`（风格库）
+- **module**：`scripts/template/`（模板库，只给幻灯片）↔ `references/workflow/03_video_route.md`／`references/domain/video_style_*.md`（视频风格文档，**本 Skill 自己维护**）
 - **现象**：文档让「做画面开局就去读风格参考库、挑一个（`template_library.py list`）」，而库里唯一那张是 **PPT 模板**。照做会把 fidelity 锁层绑到视频画面上，第一次 `check` 就报 `FIDELITY_LAYOUT_NOT_DECLARED`／`FIDELITY_LOCKED_LAYER_MISMATCH`／`REQUIRED_FIDELITY_COMPONENT_MISSING`——因为那张 canvas 的锁层里烤着**两个满幅不透明矩形**和一条 **y=1010 的页脚线**：视频画面要么满屏替换、要么透明叠加，前者两个都做不了，后者正压在字幕安全区上。
-- **原因**：两个库服务两个出口（模板库给幻灯片、风格库给视频），而入口的默认动作把其中一个顶到了另一个的位置上；文档里「没有贴合的就别硬套」是对的，是被入口的默认动作顶掉了。
-- **行为修正**：`SKILL.md` 的两条路线对照表 + 「模板库≠风格库」写清分工；`ppt_pipeline` 只在 `route=='slides'` 时才挂 `--fidelity-template`；视频路线的视觉身份只从风格库（或自主设计，在 `design_direction.md` 里说明）来。**做画面永不经过模板提取。**
+- **原因**：两个来源服务两个出口（模板库给幻灯片、视频风格文档给视频画面），而入口的默认动作把其中一个顶到了另一个的位置上；文档里「没有贴合的就别硬套」是对的，是被入口的默认动作顶掉了。
+- **行为修正**：`SKILL.md` 的两条路线对照表 + 「模板库≠视频风格来源」写清分工；`ppt_pipeline` 只在 `route=='slides'` 时才挂 `--fidelity-template`；视频路线的视觉身份只从本 Skill 自己的风格文档/模板（或自主设计，在 `design_direction.md` 里说明）来。**做画面永不经过模板提取。**
 - **证据**：报告 P-01（含锁层里那两个矩形的实测 XML）。
 - **状态**：已升级（v5.5）
 

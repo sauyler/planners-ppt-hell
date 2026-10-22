@@ -469,3 +469,16 @@ v5.2.1（描边保真：删掉描边上的 `* 0.6` 系数，新增低于 0.5pt �
 | 工作台 Store 增加模型可用的 `add_page` / `delete_page`，用页集合与版本 CAS 保持可恢复；审阅页刷新时同步新增、删除页面 | 页面增删是页面集合的正常编辑，不应被旧的固定集合假设挡住 | `scripts/workbench_store.py`、`assets/review/review.html`、`scripts/generate_review_html.py` | “页面集合固定、不可增删”的旧限制 |
 | 快照保留 `order` 并把集合变化写入 `collection_delta`；交给 Video Craft 后，页序变化会使时间线进入待复核状态 | 拖动页序必须成为下游明确可见的交接数据，不能沿用旧时间轴 | PPT snapshot 与 Video Craft `snapshot_input.py`、`generate-composition.py` | 只比较 SVG/素材、不比较页序的静默路径 |
 | 大字画布编辑器使用不换行输入并按可用画布调整尺寸 | 避免 CSS 自动软换行把一次文字修改变成意外的多行版式 | `assets/review/review.html` | `overflow-wrap:anywhere` 导致的隐式换行 |
+
+## 2026-10-22 · 视频风格与 Video Craft 主题库解耦：数值归本 Skill，注册通道取消
+
+| 做了什么 | 为什么 | 影响了哪些 module | 删了什么 |
+|---|---|---|---|
+| 视频风格的数值与登记改为**本 Skill 自己维护**：风格文档（`references/domain/video_style_<id>.md`）持有数值与用法，参考图在 `assets/video_style_references/<id>/`；明确写出「不向 Video Craft 注册风格，也不读取它的主题库」 | video-craft 侧删除 `visual/themes/` 的 24 套主题库，旧读法会指向一个不存在的目录；风格数值的所有权应落在使用它的 Skill 里，跨 Skill 注册是多余的耦合 | `references/workflow/03_video_route.md`、`references/workflow/08_video_style_extraction_sop.md`、`references/domain/video_style_editorial_archive.md`、`references/contracts/template_package.md`、`references/architecture.md`、`SKILL.md`、`README.md`、`evals/evals.json` | 「风格 Token 唯一真源 = `video-craft/visual/themes/editorial-archive/tokens.css`」与 `theme_tokens.py show` 的读法；「注册到别的 Skill」这条通道 |
+| 视频路线的视觉来源措辞统一成本 Skill 的风格文档/模板，或明确自主设计；GOTCHAS G-11 的 module 归属与行为修正同步改口径 | 解耦后不再有「风格库」这个概念，故障记录与入口导航不能继续指它 | `GOTCHAS.md`（G-11）、`references/architecture.md`、`SKILL.md`、`evals/evals.json` | 「选择 Video Craft 主题」「模板库≠风格库」中把风格归到 Craft 的那一半 |
+| `UNDEFINED_CSS_VAR` 的提示把「风格库」改成「模板或风格文档」，后果说成「换模板或风格文档时这一处不会跟着变」 | 校验器是每条页面都会看到的出口，继续点名一个已不存在的库会把人引到死路 | `scripts/validate_svg_layout.py`、`scripts/test/test_route_rules.py` | 「风格库对它失效」「值从风格库取」两处措辞 |
+| 删除风格库读取模块与其专测；`scripts/style/` 目录随之为空并删除 | 读一个不存在的目录没有合法用法，留着只会被误当入口；专测跟着被测对象一起退役 | `scripts/style/theme_tokens.py`（删）、`scripts/test/test_theme_tokens.py`（删） | 整个 `theme_tokens` 模块（`list` / `show`、`--themes-dir` 与 `PPT_HELL_THEMES_DIR` 的目录定位、`var()` 展开与解析报错） |
+
+**边界怎么变了**：视频画面路线的视觉身份完全由本 Skill 维护（风格文档 + 随包参考图 + 模板）；Craft 只接收固定快照，并按 `video-craft/references/type-spec.md` 的三种制作类型（原页改写 slide-derived / 自建图形 built-graphics / 线稿工程图 line-art）约束成品。跨 Skill 的「注册主题」不再存在。
+
+**回归**：`python3 -m unittest discover -s scripts/test -p 'test_*.py'` → `Ran 387 tests`，`OK (skipped=93)`（浏览器项按环境跳过）。

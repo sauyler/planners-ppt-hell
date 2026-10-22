@@ -1,11 +1,11 @@
 # `editorial-archive` 视频画面风格规范（四域 × 独奏/群像节奏矩阵）
 
-本文件是 editorial-archive 的静态样张与构图参考。共享数值从 Video Craft 主题读取，动作接口以 Craft 契约为准。下面的坐标、比例、Solo/Multi 组合与构件数量描述样张条件；项目人物/字幕区域与当前内容优先，使用时可调整。
+本文件是 editorial-archive 的静态样张、构图参考与风格文档。共享数值由本 Skill 自己维护（本文件 + `assets/video_style_references/editorial-archive/` 随包参考图），动作接口以 Craft 契约为准。下面的坐标、比例、Solo/Multi 组合与构件数量描述样张条件；项目人物/字幕区域与当前内容优先，使用时可调整。
 
 
 本文件提供 `planners-ppt-hell` 视频画面路线的样张参考 **`editorial-archive`（瑞士编辑档案）**。它把口播视频中常见的四类信息形态——**文字凸显、模型构建、图文混排、图片为主**——统一在同一套暖纸张底色、字体阶级、工程发丝网格与预埋动效契约之下，并通过 **Solo（独奏极简）/ Multi（群像展开）** 两种样张组织方式展示不同内容体量。
 
-- **风格 Token 唯一真源**：`video-craft/visual/themes/editorial-archive/tokens.css`（通过 `python scripts/style/theme_tokens.py show editorial-archive` 读取）
+- **风格数值与用法**：由 **本 Skill 自己维护**——本文件即该风格的文档，数值与使用条件写在这里；随包参考图在 `../../assets/video_style_references/editorial-archive/`。不从 `video-craft` 的主题库读取，也不再向它注册风格。
 - **预埋动效唯一契约**：`video-craft/references/svg-animation-contract.md`（与 `video-craft/visual/assets/svg-anim-engine.js` 严格配套）
 
 ---

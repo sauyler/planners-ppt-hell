@@ -42,7 +42,7 @@
 
 工具检查包是否可读取、是否有原语和视觉锚点，不按固定原语数量推断覆盖面。参考用于当次页面时可直接使用图片与项目方向，不要求补齐入库包。提取与迁移试做见 [提取流程](../workflow/01_template_intake.md)。
 
-视频视觉来源沿用 Video Craft 主题库的格式与数值；视频样张及制作说明在本 Skill 提供引用，动作和合成字段只引用 Craft 契约，见 [视频提取](../workflow/08_video_style_extraction_sop.md)。不强制两路同包格式。
+视频视觉来源由本 Skill 自己维护的视频风格文档与随包参考图提供（数值写在风格文档里），不再沿用 Video Craft 主题库的格式与数值；视频样张及制作说明在本 Skill 提供引用，动作和合成字段只引用 Craft 契约，见 [视频提取](../workflow/08_video_style_extraction_sop.md)。不强制两路同包格式。
 
 ## 审阅版本与发布
 

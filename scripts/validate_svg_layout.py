@@ -682,14 +682,14 @@ def validate_file(path, page_mode=DEFAULT_MODE, margin=MARGIN, quick_mode=False,
                 if fallback:
                     detail = (f"取值方式：{source}；这一处用了没定义的 token {token}"
                               f"（回退值 {fallback.strip()} 让它看起来正常）"
-                              f"——但换主题时这一处不会跟着变，风格库对它失效。")
+                              f"——但换模板或风格文档时这一处不会跟着变，token 改了它也不动。")
                 else:
                     detail = f"取值方式：{source}；这一处没有回退值，实际取不到颜色。"
                 E("UNDEFINED_CSS_VAR",
                   f"这一页用了没定义的 token：<text> 的 {prop} 取 var({token})，"
                   f"但同一份 SVG 里没有定义 {token}: '{snippet}…'",
                   target=tid, detail=detail,
-                  hint=f"在页内 <style> 的 :root 里定义 {token}（值从风格库取），或改用一个已定义的 token。")
+                  hint=f"在页内 <style> 的 :root 里定义 {token}（值从所选模板或风格文档取），或改用一个已定义的 token。")
 
         # ── Guard 2 (slides only): EMOJI_IN_SLIDE_TEXT ──
         if slides:

@@ -12,7 +12,7 @@ python scripts/init_svg_project.py <project> --assets <pack>/assets --plan <pack
 无生产包时用 `python scripts/init_svg_project.py <project> --source <上屏稿.md> --route video`，整理 page_content 后使用同一工作台。独立输入输出快照标明未绑定脚本，后续合成需由 Craft 建立脚本与时间绑定；不声称它已满足生产包交接。
 
 已有包的 screen ID 不重新编号；契约中的正文、原样标签和花字按适配器进 content，理由、来源与说明进 notes。未知字段报告裁决，不假装已画上屏。
-确认风格与画幅，选择 Video Craft 主题或明确自主设计；editorial-archive 参考见 [主题说明](../domain/video_style_editorial_archive.md)，新主题提炼见 [提炼 SOP](08_video_style_extraction_sop.md)。
+确认风格与画幅：视频风格由本 Skill 自己的风格文档或模板决定，不再读取 `video-craft` 的主题库；也可以明确自主设计。editorial-archive 参考见 [风格说明](../domain/video_style_editorial_archive.md)，新风格提炼见 [提炼 SOP](08_video_style_extraction_sop.md)。
 共同方向写入 _internal/01_content/design_direction.md。字幕区、人物位置、透明/不透明、强调余量都只是**可选提示**：项目需要就写，不需要就不写，不拦页面制作与快照。只有明确要用 Video Craft 的 composition 事实时才读它的 references/composition-facts-contract.md；本 Skill 不复制第二份字段定义。
 
 ## 制作与检查
