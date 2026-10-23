@@ -1,6 +1,6 @@
 ---
 name: planners-ppt-hell
-description: 制作与持续修改 SVG 页面工作台，从逐页内容稿或 video-idea-system 的 visual-plan.json 与素材出发，输出可编辑 PPT 或固定版本的视频画面快照。用于直接材料或生产包的页面制作、返修、视觉参考复用及需人工确认的模板提炼入库。
+description: 制作与持续修改 SVG 页面工作台，从逐页内容稿或 video-idea-system 的 visual-plan.json 与素材出发，输出可编辑 PPT 或视频 SVG 文件。用于直接材料或生产包的页面制作、返修、视觉参考复用及需人工确认的模板提炼入库。
 ---
 
 # Planner's PPT Hell
@@ -15,7 +15,7 @@ SVG 工作台持续存在。用户改字与模型候选共用版本存储；PPT 
 职责与接口见 [架构](references/architecture.md)。读 [00_pipeline_controller.md](references/workflow/00_pipeline_controller.md)，初始化或恢复同一项目。
 幻灯片可接收 Bypage 逐页稿，也可从用户材料、已有稿件或需求直接整理内容；按复杂度调用 Bypage，不把它设为前置门。见 [02_content_stage.md](references/workflow/02_content_stage.md)。
 视频可适配 visual-plan.json 与 assets，也可直接接收上屏稿或材料；已有 screen ID 保持不变。见 [03_video_route.md](references/workflow/03_video_route.md)。
-沿用 Bypage 的 canonical 来源索引和已绑定的事实核查；内容改写后的核查时机与范围见内容输入文档，不把原 audit 扩大为新页面已核查。
+接收 Bypage 成品时沿用其 canonical 来源索引和已绑定的事实核查；内容改写后的核查时机与范围见内容输入文档，不把原 audit 扩大为新页面已核查。
 结束条件：来源可读、稳定页面身份可定位、资产已登记且没有静默遗漏。
 
 ## 2. 定方向
@@ -34,11 +34,11 @@ SVG 工作台持续存在。用户改字与模型候选共用版本存储；PPT 
 
 ## 4. 输出
 
-网页先保存末次输入、页序和页面集合并提交 snapshot；宿主唤醒携带确切 snapshot.path。运行 `python scripts/orchestrate/ppt_pipeline.py <project> export --snapshot <snapshot.json绝对路径>` 消费选定版本；指定无效路径直接报错。未指定路径时，`export` 才固定当前页面、页序与资产。
-控制器校验冻结画面。slides 的 PPT、notes 与转换报告在 `_internal/06_ppt_output/<snapshot_id>/`；export 的 output_path 指向实际输出，根 final_deck.pptx 只是最新兼容副本。video 返回不可变 snapshot.json 给 Video Craft。
+PPT 输出或需要固定版本交接时，网页先保存末次输入、页序和页面集合并提交 snapshot；宿主唤醒携带确切 snapshot.path。运行 `python scripts/orchestrate/ppt_pipeline.py <project> export --snapshot <snapshot.json绝对路径>` 消费选定版本；指定无效路径直接报错。未指定路径时，`export` 才固定当前页面、页序与资产。
+控制器校验冻结画面。slides 的 PPT、notes 与转换报告在 `_internal/06_ppt_output/<snapshot_id>/`；export 的 output_path 指向实际输出，根 final_deck.pptx 只是最新兼容副本。视频默认直接交付已保存的 SVG 与关联素材，见视频路线；需要固定版本交接时可生成快照。
 PPT 用实际渲染预览运行 `export-inspect --snapshot <同一snapshot.json> --previews <实际PNG...> --note "<工具与发现>"`，绑定该次输出，不要求工作台停止编辑。没有渲染工具就报告未复核，保留 EXPORT_VERIFY；快照校验范围见 [项目契约](references/contracts/project_contract.md)。
-视频只保留不可变快照、页序、SVG、资产与 notes；元素 id、步骤钩子、脚本绑定都是可选增强，不要求。报告 content_delta / changed_needs_check；它们不证明新文本与已录音语义一致。动效与合成规范归 Video Craft。
-结束条件：输出的快照与文件可定位、技术结果已报告、实际复核工具及限制清楚。随后仍可回到工作台。
+视频交付当前保存版本的 SVG、关联素材、页序与 notes，不要求额外 export；元素 id、步骤钩子、脚本绑定都是可选增强，不要求。如使用快照，报告 content_delta / changed_needs_check；它们不证明新文本与已录音语义一致。动效与合成规范归 Video Craft。
+结束条件：交付文件与对应版本可定位、技术结果已报告、实际复核工具及限制清楚。随后仍可回到工作台。
 
 ## 按需读取
 

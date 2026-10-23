@@ -454,7 +454,7 @@ def main():
     print("User-facing deliverables:")
     print("  02_visual_review.html")
     if output_route == "video":
-        print(f"  {INTERNAL_ROOT}/06_workbench/snapshots/<snapshot_id>/snapshot.json")
+        print("  SVG files and referenced assets (current saved revisions; no export required)")
     else:
         print("  final_deck.pptx")
     print("Internal workspace:")

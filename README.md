@@ -5,8 +5,8 @@
 
 主 Agent 把材料或上游交来的画面契约做成有证据、可读、跨页一致的 SVG 画面。**两个出口**：
 
-- **可编辑 PPT** —— 整理轻量内容底稿、自主设计 SVG、渲染看图调整、可选整套人工审阅，导出 PPTX。
-- **视频静态画面** —— 从上游的 `visual-plan.json` + `assets/` 出发，挑一个视觉风格、逐屏出**可被动画指名**的 SVG，录制前交付，**不导出 PPT**。
+- **可编辑 PPT** —— 按材料复杂度整理内容或调用 Bypage、自主设计 SVG、渲染看图调整、可选整套人工审阅，导出 PPTX。
+- **视频静态画面** —— 从上游生产包或直接材料出发，制作并交付 SVG 与关联素材；元素级动画标识按需添加，**无需额外导出**。
 
 > 作者：阿祖不看 TVC（小红书同名） · [demyth.info](https://demyth.info) · [Lawyif@163.com](mailto:Lawyif@163.com)
 
@@ -14,7 +14,7 @@
 
 ## 它解决什么
 
-材料到画面之间最难的一段不是排版，而是**内容取舍**和**看着画面改画面**。本 Skill 让主 Agent 先把材料整理成轻量内容底稿，再自己设计 SVG、渲染出来看、看着改 —— 画面本身成为判断依据，而不是先定稿再排版。
+材料到画面之间最难的一段不是排版，而是**内容取舍**和**看着画面改画面**。本 Skill 让主 Agent 按材料复杂度完成必要的内容整理，再自己设计 SVG、渲染出来看、看着改 —— 画面本身成为判断依据，而不是先定稿再排版。
 
 工程上它只保证三件事：画面有证据（检查画面与导出 PPT 共用同一套坐标几何）、跨页一致（画布与视觉 token 只有一个 owner）、可复核（校验器与渲染结果留在项目里，人能回看）。
 
@@ -139,7 +139,7 @@ python scripts/init_svg_project.py <project>/<画面目录> \
     --assets <包>/assets --plan <包>/visual-plan.json
 ```
 
-没有生产包时可用 `--source <上屏稿.md> --route video` 直接制作，快照标明尚未绑定脚本。视觉身份由本 Skill 自己维护的视频风格文档（`references/domain/video_style_*.md`）或模板决定，也可以明确自主设计；不再从 Video Craft 的主题库挑，也不向它注册主题。普通 SVG 不要求逐页/整套批准，录制或交接用不可变 snapshot.json；完整流程见 [视频路线](references/workflow/03_video_route.md)。
+没有生产包时可用 `--source <上屏稿.md> --route video` 直接制作，快照标明尚未绑定脚本。视觉身份由本 Skill 自己维护的视频风格文档（`references/domain/video_style_*.md`）或模板决定，也可以明确自主设计；不再从 Video Craft 的主题库挑，也不向它注册主题。普通 SVG 不要求逐页/整套批准，录制或交接直接交付已保存 SVG 与关联素材，固定版本快照按需使用；完整流程见 [视频路线](references/workflow/03_video_route.md)。
 
 工作台持续可编辑，没有永久 COMPLETE。5.0 项目首次接入导入既有 SVG；更早项目不混用旧状态机。模板入库仍需当前包人工确认。
 

@@ -14,7 +14,7 @@ project_state.py 管输入、方向与派生证据；store 项目页面版本依
 
 ## 输出
 
-export 先 snapshot，再校验 scenes 并转换；PPT 检查记录绑定输出指纹而非 live 状态。视频交接明确 snapshot.json 与内容差异，动效和录音处理仍归 Craft。
+export 先 snapshot，再校验 scenes 并转换；PPT 检查记录绑定输出指纹而非 live 状态。视频直接交付已保存 SVG 与关联素材；选用固定快照交接时明确 snapshot.json 与内容差异，动效和录音处理仍归 Craft。
 WORKBENCH 是持续状态，EXPORT_VERIFY 是本次输出待复核，不写永久 COMPLETE。
 维护选定快照消费、并发输出或复核溯源时，读 [项目契约的选定版本输出](../references/contracts/project_contract.md#选定版本输出)。
 

@@ -1,7 +1,7 @@
 # 视频静态画面工作台
 
 可适配 video-idea-system 的 visual-plan.json + assets，也可直接接收上屏稿或材料，将内容制作成静态 SVG。元素级可指名性是可选增强，不是这条路线的前置条件。旧 Story 入口已转入 Idea；可识别的既有包按文件契约接收，不要求重跑故事流程。
-普通页面没有录制前批准门。作者可以在持续工作台改字、提任务；录制或交给 Craft 时选择一次固定快照，不把整个项目封成终态。
+普通页面没有录制前批准门。作者可以在持续工作台改字、提任务；录制或交给 Craft 时交付已保存的 SVG 与关联素材，需要固定整套版本时可使用快照，不把整个项目封成终态。
 
 ## 接收与方向
 
@@ -13,7 +13,7 @@ python scripts/init_svg_project.py <project> --assets <pack>/assets --plan <pack
 
 已有包的 screen ID 不重新编号；契约中的正文、原样标签和花字按适配器进 content，理由、来源与说明进 notes。未知字段报告裁决，不假装已画上屏。
 确认风格与画幅：视频风格由本 Skill 自己的风格文档或模板决定，不再读取 `video-craft` 的主题库；也可以明确自主设计。editorial-archive 参考见 [风格说明](../domain/video_style_editorial_archive.md)，新风格提炼见 [提炼 SOP](08_video_style_extraction_sop.md)。
-共同方向写入 _internal/01_content/design_direction.md。字幕区、人物位置、透明/不透明、强调余量都只是**可选提示**：项目需要就写，不需要就不写，不拦页面制作与快照。只有明确要用 Video Craft 的 composition 事实时才读它的 references/composition-facts-contract.md；本 Skill 不复制第二份字段定义。
+共同方向写入 _internal/01_content/design_direction.md，写清风格、机器画幅引用和本次实际选择。字幕区、人物位置、透明/不透明、强调余量都只是**可选提示**：项目需要就写，不需要就不写，不拦页面制作与快照。只有明确要用 Video Craft 的 composition 事实时才读它的 references/composition-facts-contract.md；本 Skill 不复制第二份字段定义。
 
 ## 制作与检查
 
@@ -24,7 +24,15 @@ python scripts/init_svg_project.py <project> --assets <pack>/assets --plan <pack
 `check` 只跑两条出口共同的技术规则。**没有元素 id 只报 info**，不拦保存、不拦快照；**页内重复 id 仍是 error**——那是 SVG 自身的唯一性问题，不是视频要求。PPT 独有的检查不混入 video 出口。看图记录诚实写发现与位置，技术绿色不代替内容或风格判断。
 工作台 review 是可用动作，待处理意见仍可以继续保存或独立导出。
 
-## 固定交接快照
+## 交付 SVG
+
+完成保存、技术检查与实际看图后，按 store 的 order 读取各页 get_page 返回的 revision 与 svg_path，交付这些已保存的 SVG、关联素材与 notes。保持 SVG 相对素材路径可解析；移交文件时携带对应资产，不只复制裸 SVG。普通视频交付到此即可，无需运行 export，也无需生成 PPTX。兼容 02_svg_source 可用于查看，交付版本以 store 保存回执为准。
+
+没有脚本或录音绑定时如实说明；文案修改后的事实核查仍按内容输入流程处理，不把 SVG 已保存当成与录音语义一致。
+
+## 按需固定交接版本
+
+需要冻结整套页序与资产、重现某次交接，或下游明确消费 snapshot.json 时，才使用以下快照能力：
 
 ```bash
 python scripts/orchestrate/ppt_pipeline.py <project> export

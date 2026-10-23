@@ -20,7 +20,7 @@ python scripts/orchestrate/ppt_pipeline.py <project> next --json
 ## 状态与动作
 
 正常编辑状态是 WORKBENCH，未复核的 PPT 输出是 EXPORT_VERIFY；内容或契约错误仍报告 CONTENT。没有永久完成状态。
-review 是可用动作，不是 compulsory state。export 独立于待办反馈与页面批准，仍运行真实技术校验。模板另走 template-review。
+review 是可用动作，不是 compulsory state。视频保存与检查后可直接交付 SVG 和关联素材；export 快照按需使用。export 独立于待办反馈与页面批准，仍运行真实技术校验。模板另走 template-review。
 首次接入 store 导入现有兼容 SVG。之后所有修改走 store；直接覆盖兼容目录会报冲突，保留异常文件为候选后处理。
 旧 feedback.json 与宿主遗漏提交只报告为恢复材料，不自动应用旧树索引。工作台任务只从 store tasks 读取。
 候选命令与资产定位见 [页面制作](04_svg_stage.md)；打开工作台与任务恢复见 [工作台](07_visual_review.md)。

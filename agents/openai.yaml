@@ -1,4 +1,4 @@
 interface:
   display_name: "Planner's PPT Hell"
-  short_description: "持续 SVG 页面工作台，输出可编辑 PPT 与视频固定版本快照"
-  default_prompt: "使用 planners-ppt-hell 从逐页稿或视频画面契约制作持续 SVG 工作台，保留来源与用户修改，逐页看图检查，并按选定固定快照输出可编辑 PPT 或视频静态画面。"
+  short_description: "持续 SVG 页面工作台，输出可编辑 PPT 与视频 SVG"
+  default_prompt: "使用 planners-ppt-hell 从逐页稿或视频画面契约制作持续 SVG 工作台，保留来源与用户修改，逐页看图检查，PPT 按选定快照输出，视频直接交付已保存 SVG 与关联素材，固定版本快照按需使用。"

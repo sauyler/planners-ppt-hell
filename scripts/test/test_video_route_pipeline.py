@@ -87,7 +87,7 @@ class RouteTerminalStateTests(unittest.TestCase):
 
     def write_direction(self):
         (self.root / DIRECTION).write_text(
-            "# 这套画面的秩序\n\n字幕安全区、人物位置、不透明与透明、强调动画余量。\n", encoding="utf-8")
+            "# 这套画面的秩序\n\n白底黑字，标题优先；画幅沿用 manifest。\n", encoding="utf-8")
 
     def seal(self, verdict="clean"):
         """造出「check 过、也看过图」的状态：这是夹具，不是流程。"""
@@ -127,7 +127,8 @@ class RouteTerminalStateTests(unittest.TestCase):
         self.assertEqual(payload["state"], "CONTENT")
         self.assertIn(str(self.root / DIRECTION), payload["missing"][0])
         self.assertIn("03_video_route.md", payload["stage"])
-        self.assertIn("字幕安全区", payload["instruction"])
+        self.assertIn("按需说明", payload["instruction"])
+        self.assertIn("无需固定字段", payload["instruction"])
 
     def test_check_refuses_a_video_project_without_design_direction(self):
         self.build_video_project(with_direction=False)
@@ -173,6 +174,11 @@ class RouteTerminalStateTests(unittest.TestCase):
         self.assertEqual(payload["state"], "WORKBENCH")
         self.assertTrue(payload["export_available"])
         self.assertIn("review", payload["actions"])
+        self.assertIn("No export or page approval is required", payload["instruction"])
+        from workbench_store import get_page
+        for key in self.keys:
+            self.assertTrue(Path(get_page(self.root, key)["svg_path"]).is_file())
+        self.assertFalse((self.root / PROJECT / "video_export.json").exists())
         self.assertNotIn("go straight to export", payload["instruction"])
         # 这条路上不出现 PPTX 交付物，也不出现导出状态。
         self.assertNotIn("final_deck.pptx", json.dumps(payload, ensure_ascii=False))

@@ -19,6 +19,8 @@ save 回执增加 changes（元素增删改 ID/数量、图片和文本变化 ID
 PNG、validator 与 inspect 绑定版本；旧证据不能代表新页。渲染失败不取消保存的 SVG，也不把旧预览盖为当前。
 legacy feedback 保持原始值供恢复；旧树索引不是 stable element ID，不盲目回放。
 
+视频默认按 store order 交付 get_page 返回的当前版本 SVG 与关联素材，不要求 export。需要冻结整套版本或消费既有快照时使用以下接口。
+
 ## 输出快照
 
 snapshot(root,purpose='slides') 返回 snapshot_id、绝对 root / path、order 与 pages。pages[].svg 是 scenes/key.svg 等快照内相对路径；SVG 与资产冻结，不依赖 live 目录。

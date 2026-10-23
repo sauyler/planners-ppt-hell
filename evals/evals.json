@@ -1,5 +1,4 @@
 {
-  "status": "not_run_user_will_test_elsewhere",
   "cases": [
     {
       "id": "autonomous",
@@ -29,8 +28,8 @@
       "id": "bypage_material_intake",
       "prompt": "把这批不是 PPT 的研究资料做成可编辑 PPT，先完成内容理解和完整逐页稿，再进入视觉制作。",
       "must_do": [
-        "调用 planners-bypage 处理非 PPT 资料",
-        "接收 by-page.md 与 assets 后再开始画面制作",
+        "按资料复杂度整理内容；多源研究或需要完整来源审阅时调用 planners-bypage",
+        "完成可用于设计的逐页稿与资产整理后再开始画面制作",
         "保留来源、数字限定条件和图片语义作用"
       ],
       "must_not_do": [
@@ -76,8 +75,8 @@
       "id": "video_no_pptx",
       "prompt": "这条视频的画面做完了，你直接导出一份 PPT 给我吧，我好发出去。",
       "must_do": [
-        "说明这条路的交付物是全部 _internal/02_svg_source/<page_key>.svg，没有导出这一步",
-        "说明 export 在这条路上会被拒；确要 PPT 就说明要走幻灯片路线重新初始化，而不是硬导"
+        "说明视频默认交付已保存 SVG 与关联素材，无需额外 export",
+        "用户明确需要 PPT 时说明需按幻灯片路线制作和检查，视频快照不等于 PPTX"
       ],
       "must_not_do": [
         "导出 final_deck.pptx",
@@ -85,11 +84,12 @@
       ]
     },
     {
-      "id": "video_review_is_gate",
+      "id": "video_svg_delivery",
       "prompt": "视频画面都画完了，check 也全绿，你直接收尾吧。",
       "must_do": [
-        "停下来跑整套审阅（review），让作者逐页给意见",
-        "说明这条路上未审阅不能算完成；作者明确说过可以录了才算"
+        "核实当前 SVG 已保存、技术检查及实际看图结果",
+        "直接交付当前版本 SVG、关联素材和页序；普通交付不要求 export 或作者批准",
+        "工作台可继续修改，固定版本快照按需使用"
       ],
       "must_not_do": [
         "宣告 COMPLETE",
@@ -115,28 +115,24 @@
       "id": "video_design_direction",
       "prompt": "这八屏先开始画吧，秩序和风格那些我们边做边定。",
       "must_do": [
-        "先写 _internal/01_content/design_direction.md 再动手（这条路线上它必填，缺了 check 会拦）",
-        "四条视频约束都写清：字幕安全区／人物位置／不透明与透明／强调动画余量",
-        "其中三条按契约写成带 composite 键的 json 代码块（composite／personWindow／captionSafe），键名以 video-craft 的契约为准"
+        "在 design_direction.md 写清风格、画幅引用和本次实际选择",
+        "字幕区、人物位置、透明方式与动画余量按项目需要说明"
       ],
       "must_not_do": [
-        "先画页面、方向文件以后再说",
-        "只写散文不写那三个键",
-        "自己发明字段名或取值"
+        "强制填写四项视频约束或固定 composition JSON 字段",
+        "因未填写不适用的可选约束阻止制作"
       ]
     },
     {
       "id": "video_style_library",
       "prompt": "这几屏要压在我们的实拍素材上，风格你按公司那套模板来，标志和背景直接复用。",
       "must_do": [
-        "说明视频画面的视觉身份来自本 Skill 自己维护的视频风格文档/模板（数值写在风格文档里），不再读取 video-craft 的主题库",
-        "说明模板库的锁层里烤着满幅不透明矩形和一条落在字幕区上的页脚线，套上来会毁掉画面",
-        "要真实复用品牌资产时说明那是幻灯片路线的重组件，不是这条路的做法"
+        "实际查看指定模板与品牌资产，判断其在本次视频中的适用性",
+        "按需复用品牌资产，在方向文件说明背景透明方式、遮挡及必要调整"
       ],
       "must_not_do": [
-        "把模板库的模板套到视频画面上",
-        "套 fidelity 锁层",
-        "拿风格 token 与模板互相顶替"
+        "未查看模板就断言它必有不透明背景或字幕区页脚",
+        "一概禁止视频使用模板或品牌资产"
       ]
     }
   ]

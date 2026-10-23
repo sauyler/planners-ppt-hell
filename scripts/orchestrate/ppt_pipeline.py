@@ -79,8 +79,8 @@ def require_direction(root):
     if missing and route(root)=='video':
         raise ValueError(
             '视频路线上 design_direction.md 是动手前的前置，现在缺 '+str(missing)+
-            '：先按 references/workflow/03_video_route.md 写清这套页面的共同秩序与四条视频约束'
-            '（字幕安全区、人物位置、不透明与透明、强调动画余量），再画页面。')
+            '：先按 references/workflow/03_video_route.md 写清这套页面的共同秩序与本次实际选择；'
+            '字幕区、人物位置、透明方式和动画余量按需说明，无需固定字段。')
 
 def require_contract(root):
     """契约绑定：`level=error` 拦下（口播稿改过，画面可能要重画）。
@@ -670,8 +670,8 @@ def _next_action(root):
     if route_now=='video' and direction_missing(root):
         return {'state':'CONTENT','missing':[str(root/DIRECTION)],'route':route_now,'contract':contract,
                 'instruction':f'视频路线的第一步是把这套画面的秩序定下来：写 {DIRECTION}——'
-                              '按 references/workflow/03_video_route.md 的四条视频约束'
-                              '（字幕安全区、人物位置、不透明与透明、强调动画余量）组织。'
+                              '按 references/workflow/03_video_route.md 写清风格、画幅引用与本次实际选择。'
+                              '字幕区、人物位置、透明方式和动画余量按需说明，无需固定字段。'
                               '这份文件在这条路线上是必填，缺了 check 会拦。',
                 'stage':str(SCRIPTS.parent/'references/workflow/03_video_route.md')}
     tasks=unresolved(root)
@@ -693,8 +693,9 @@ def _next_action(root):
     if route_now=='video':
         return {'state':'WORKBENCH','route':route_now,'pages':list(v),'contract':contract,
                 'actions':['review','check','export'],'export_available':True,
-                'instruction':'Continue editing, open review, or export an immutable video snapshot. '
-                              'Pass its snapshot.json to the animation layer; no page approval required.'}
+                'instruction':'Deliver the saved SVG files and their referenced assets in store page order; '
+                              'get_page provides each current revision and svg_path. No export or page approval is required. '
+                              'Continue editing or open review as needed; snapshot export is optional for a fixed-version handoff.'}
 
     out=read(root/PROJECT/'export.json',{})
     output=local(root,out['output_path']) if out.get('output_path') else root/'final_deck.pptx'

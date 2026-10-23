@@ -714,8 +714,8 @@ class ProjectStateTests(VideoRouteFixtures, unittest.TestCase):
         root = self.tmp_path / "video"
         result = init(root, "--assets", pack / "assets", "--plan", pack / "visual-plan.json")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("06_workbench/snapshots/<snapshot_id>/snapshot.json", result.stdout)
-        self.assertIn("snapshot.json", result.stdout)
+        self.assertIn("SVG files and referenced assets", result.stdout)
+        self.assertIn("no export required", result.stdout)
         self.assertNotIn("final_deck.pptx", result.stdout)
 
         source = self.tmp_path / "brief.md"
